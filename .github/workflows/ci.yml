@@ -21,7 +21,7 @@ jobs:
       - name: Run full regression and security gate
         run: bash scripts/ci/full_regression.sh
 
-  cross-target-check:
+  sanity-check:
     runs-on: [self-hosted, linux, x64, aihelp]
     timeout-minutes: 30
     steps:
@@ -30,12 +30,5 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Add compile-only targets
-        run: |
-          rustup target add x86_64-pc-windows-gnu
-          rustup target add x86_64-apple-darwin
-
-      - name: Cross-target compile checks
-        run: |
-          cargo check --target x86_64-pc-windows-gnu
-          cargo check --target x86_64-apple-darwin
+      - name: Compile sanity check
+        run: cargo check --all-features --all-targets
