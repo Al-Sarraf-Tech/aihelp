@@ -1,0 +1,117 @@
+.TH AIHELP 1 "March 2026" "aihelp 0.3.0" "User Commands"
+.SH NAME
+aihelp \- LM Studio + MCP CLI helper
+.SH SYNOPSIS
+.B aihelp
+[\fIOPTIONS\fR] <QUESTION...>
+.br
+.B aihelp --list-models
+.br
+.B aihelp --list-flags
+.br
+.B aihelp --setup
+.br
+.B aihelp --model <ID>
+.SH DESCRIPTION
+\fBaihelp\fR is a cross-platform Rust CLI that sends a natural-language question to an
+OpenAI-compatible LM Studio endpoint, optionally enriched by piped stdin context.
+It can also expose configured MCP servers as model-callable tools.
+.PP
+Streaming is enabled by default.
+.SH OPTIONS
+.TP
+.B --endpoint <URL>
+Override LM Studio base URL.
+.TP
+.B --api-key <KEY>
+Optional API key for Authorization header.
+.TP
+.B --model <ID>
+Use model ID for this run and persist it as the default.
+When provided without a question, validates and persists model then exits.
+.TP
+.B --stream
+Enable streaming output (default behavior).
+.TP
+.B --no-stream
+Disable streaming for this run.
+.TP
+.B --max-stdin-bytes <N>
+Maximum stdin bytes to include as context.
+.TP
+.B --timeout-secs <N>
+HTTP timeout in seconds.
+.TP
+.B --json
+Emit JSON output (or NDJSON when streaming).
+.TP
+.B --quiet
+Reduce stderr diagnostics.
+.TP
+.B --print-model
+Print selected model to stderr.
+.TP
+.B --dry-run
+Print request payload(s) without sending API calls.
+.TP
+.B --setup
+Run interactive first-run setup wizard.
+.TP
+.B --list-models
+List callable models from configured endpoint.
+.TP
+.B --list-flags
+Print concise list of CLI flags and descriptions.
+.TP
+.B --mcp
+Enable MCP tool support for this run.
+.TP
+.B --no-mcp
+Disable MCP tool support for this run.
+.TP
+.B --mcp-policy <read_only|allow_list|all>
+Override MCP tool allow policy.
+.TP
+.B --mcp-max-tool-calls <N>
+Max total MCP virtual tool calls in agent loop.
+.TP
+.B --mcp-max-round-trips <N>
+Max LLM round trips in MCP loop.
+.SH FIRST-RUN SETUP
+If config is missing and terminal is interactive, aihelp runs setup and asks whether
+MCP should be enabled by default. It then prints one-time override guidance:
+\fB--mcp\fR and \fB--no-mcp\fR.
+.PP
+If non-interactive (or \fBAIHELP_NONINTERACTIVE=1\fR), no prompt is shown and MCP
+defaults to disabled.
+.SH EXAMPLES
+.nf
+aihelp "Hello can you hear me?"
+ls | aihelp "what is in this directory?"
+cat script.sh | aihelp "what does this script do?"
+aihelp --mcp "find the right tool to search my docs for X, then summarize"
+aihelp --model openai/gpt-oss-20b
+aihelp --list-models
+.fi
+.SH CONFIG
+Default config file:
+.IP \(bu 2
+Linux: ~/.config/aihelp/config.toml
+.IP \(bu 2
+macOS: ~/Library/Application Support/aihelp/config.toml
+.IP \(bu 2
+Windows: %APPDATA%\\aihelp\\config.toml
+.PP
+Override config directory with \fBAIHELP_CONFIG_DIR\fR.
+.SH SAFETY
+Aihelp does not execute local shell commands or modify local files.
+MCP defaults to \fBread_only\fR policy and blocks write/exec-like tools unless policy is loosened.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B non-zero
+Failure (model missing, endpoint unreachable, invalid config, tool-loop limits, or other runtime error).
+.SH SEE ALSO
+Project README: https://github.com/jalsarraf0/aihelp

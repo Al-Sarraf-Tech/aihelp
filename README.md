@@ -22,6 +22,8 @@ From release binaries:
 
 Download from GitHub Releases: <https://github.com/jalsarraf0/aihelp/releases>
 
+Manpage source lives at `man/aihelp.1`.
+
 ## Quick Start
 
 Linux/macOS:
@@ -98,6 +100,12 @@ MCP flags:
 - `--mcp-max-round-trips <N>`
 
 `aihelp --help` includes an in-terminal manpage section with setup, model switching, MCP workflow, and troubleshooting reminders.
+
+You can also read the roff manpage directly:
+
+```bash
+man ./man/aihelp.1
+```
 
 Streaming behavior:
 
