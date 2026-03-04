@@ -18,6 +18,8 @@ fn list_flags_works_without_question() {
         .success()
         .stdout(contains("--list-models"))
         .stdout(contains("--model <ID>"))
+        .stdout(contains("--retries <N>"))
+        .stdout(contains("--retry-backoff-ms <N>"))
         .stdout(contains("--mcp / --no-mcp"));
 }
 

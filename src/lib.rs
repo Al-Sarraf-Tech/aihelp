@@ -39,6 +39,10 @@ STREAMING
   Default behavior:        streaming output is ON
   Disable for one run:     aihelp --no-stream "question"
 
+RETRIES
+  Retry transient errors:  aihelp --retries 2 --retry-backoff-ms 500 "question"
+  Increase timeout:         aihelp --timeout-secs 180 "question"
+
 MCP WORKFLOW
   Enable per-run:          aihelp --mcp "question"
   Disable per-run:         aihelp --no-mcp "question"
@@ -52,6 +56,7 @@ EXAMPLES
 TROUBLESHOOT
   LM Studio models:        curl <endpoint>/v1/models
   Endpoint override:       aihelp --endpoint http://127.0.0.1:1234 "question"
+  Timeout tuning:          aihelp --timeout-secs 180 --retries 3 "question"
   MCP policy override:     aihelp --mcp-policy allow_list --mcp "question"
 "#;
 
@@ -89,6 +94,12 @@ pub struct Cli {
 
     #[arg(long = "timeout-secs")]
     pub timeout_secs: Option<u64>,
+
+    #[arg(long = "retries")]
+    pub retries: Option<usize>,
+
+    #[arg(long = "retry-backoff-ms")]
+    pub retry_backoff_ms: Option<u64>,
 
     #[arg(long)]
     pub json: bool,
@@ -134,6 +145,8 @@ pub struct EffectiveSettings {
     pub model: String,
     pub max_stdin_bytes: usize,
     pub timeout_secs: u64,
+    pub retry_attempts: usize,
+    pub retry_backoff_ms: u64,
     pub mcp_enabled: bool,
     pub mcp_policy: McpAllowPolicy,
     pub mcp_max_tool_calls: usize,
@@ -192,6 +205,16 @@ pub async fn run(cli: Cli) -> Result<()> {
         .context("failed to load configuration")?;
 
     let settings = resolve_settings(&cli, &config);
+    let mut effective_mcp_enabled = settings.mcp_enabled;
+
+    if effective_mcp_enabled && config.mcp.servers.is_empty() {
+        if !settings.quiet {
+            eprintln!(
+                "MCP is enabled but no MCP servers are configured. Continuing without MCP tools for this run. Add MCP servers with `aihelp --setup`."
+            );
+        }
+        effective_mcp_enabled = false;
+    }
 
     if settings.print_model && !settings.quiet {
         eprintln!("model: {}", settings.model);
@@ -201,6 +224,8 @@ pub async fn run(cli: Cli) -> Result<()> {
         settings.endpoint.clone(),
         settings.api_key.clone(),
         settings.timeout_secs,
+        settings.retry_attempts,
+        settings.retry_backoff_ms,
     )?;
 
     if is_model_switch_only(&cli) {
@@ -230,7 +255,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         let _ = persist_model_selection(&cli, &mut config)?;
     }
 
-    let mcp_backend = if settings.mcp_enabled {
+    let mcp_backend = if effective_mcp_enabled {
         Some(
             RmcpBackend::connect(
                 config.mcp.servers.clone(),
@@ -250,7 +275,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         json: settings.json,
         dry_run: settings.dry_run,
         quiet: settings.quiet,
-        mcp_enabled: settings.mcp_enabled,
+        mcp_enabled: effective_mcp_enabled,
         mcp_max_tool_calls: settings.mcp_max_tool_calls,
         mcp_max_round_trips: settings.mcp_max_round_trips,
     };
@@ -279,6 +304,10 @@ fn resolve_settings(cli: &Cli, config: &AppConfig) -> EffectiveSettings {
     let model = cli.model.clone().unwrap_or_else(|| config.model.clone());
     let max_stdin_bytes = cli.max_stdin_bytes.unwrap_or(config.max_stdin_bytes);
     let timeout_secs = cli.timeout_secs.unwrap_or(config.timeout_secs);
+    let retry_attempts = cli.retries.unwrap_or(config.retry_attempts);
+    let retry_backoff_ms = cli
+        .retry_backoff_ms
+        .unwrap_or(config.retry_backoff_ms.max(1));
     let stream = if cli.no_stream {
         false
     } else if cli.stream {
@@ -309,6 +338,8 @@ fn resolve_settings(cli: &Cli, config: &AppConfig) -> EffectiveSettings {
         model,
         max_stdin_bytes,
         timeout_secs,
+        retry_attempts,
+        retry_backoff_ms,
         mcp_enabled,
         mcp_policy,
         mcp_max_tool_calls,
@@ -370,6 +401,8 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
         settings.endpoint.clone(),
         settings.api_key.clone(),
         settings.timeout_secs,
+        settings.retry_attempts,
+        settings.retry_backoff_ms,
     )?;
 
     let mut models = client
@@ -469,6 +502,18 @@ fn print_available_flags(as_json: bool) -> Result<()> {
         FlagDescriptor {
             flag: "--json",
             description: "Emit JSON (or NDJSON for streaming).",
+        },
+        FlagDescriptor {
+            flag: "--timeout-secs <N>",
+            description: "Set request timeout in seconds (default 120).",
+        },
+        FlagDescriptor {
+            flag: "--retries <N>",
+            description: "Retry transient LM Studio failures N times (default 2).",
+        },
+        FlagDescriptor {
+            flag: "--retry-backoff-ms <N>",
+            description: "Base retry backoff in milliseconds (default 500).",
         },
         FlagDescriptor {
             flag: "--dry-run",

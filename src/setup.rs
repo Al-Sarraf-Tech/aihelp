@@ -180,7 +180,7 @@ async fn fetch_models_for_setup(
     api_key: String,
     timeout_secs: u64,
 ) -> Result<Vec<String>> {
-    let client = OpenAiClient::new(endpoint.to_string(), api_key, timeout_secs)?;
+    let client = OpenAiClient::new(endpoint.to_string(), api_key, timeout_secs, 1, 200)?;
     client.list_models().await
 }
 

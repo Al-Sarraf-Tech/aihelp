@@ -83,6 +83,8 @@ aihelp --setup
 - `--no-stream`
 - `--max-stdin-bytes <N>`
 - `--timeout-secs <N>`
+- `--retries <N>`
+- `--retry-backoff-ms <N>`
 - `--json`
 - `--quiet`
 - `--print-model`
@@ -129,7 +131,9 @@ endpoint = "http://192.168.50.2:1234"
 model = "openai/gpt-oss-20b"
 stream_by_default = true
 max_stdin_bytes = 200000
-timeout_secs = 60
+timeout_secs = 120
+retry_attempts = 2
+retry_backoff_ms = 500
 
 [mcp]
 enabled_by_default = false
@@ -175,11 +179,18 @@ MCP server not found:
 
 - Run `aihelp --setup` and enable MCP scan.
 - Confirm mapped host ports and endpoint path (`/mcp`).
+- If MCP is enabled but no servers are configured, `aihelp` now falls back to non-MCP mode for that run and warns on stderr.
 
 MCP tool blocked:
 
 - Keep `read_only` for safety by default.
 - Override per run: `--mcp-policy allow_list` or `--mcp-policy all`.
+
+Timeouts / intermittent latency:
+
+- Increase timeout: `--timeout-secs 180`
+- Increase retries: `--retries 3 --retry-backoff-ms 800`
+- Bypass MCP for a quick baseline: `--no-mcp`
 
 ## CI/CD and Security
 

@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use assert_cmd::cargo::cargo_bin_cmd;
-use predicates::str::contains;
-use serial_test::serial;
-use tempfile::TempDir;
+use aihelp::agent::{run_agent, AgentRunOptions};
+use aihelp::client::OpenAiClient;
+use aihelp::mcp::McpBackend;
+use async_trait::async_trait;
+use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
@@ -18,7 +19,7 @@ impl Respond for SequenceResponder {
         let step = self.counter.fetch_add(1, Ordering::SeqCst);
 
         match step {
-            0 => ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            0 => ResponseTemplate::new(200).set_body_json(json!({
                 "id": "chatcmpl-1",
                 "choices": [
                     {
@@ -41,7 +42,7 @@ impl Respond for SequenceResponder {
                     }
                 ]
             })),
-            1 => ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            1 => ResponseTemplate::new(200).set_body_json(json!({
                 "id": "chatcmpl-2",
                 "choices": [
                     {
@@ -55,7 +56,7 @@ impl Respond for SequenceResponder {
                                     "type": "function",
                                     "function": {
                                         "name": "mcp_call_tool",
-                                        "arguments": "{\"server_label\":\"noserver\",\"tool_name\":\"read_file\",\"arguments\":{}}"
+                                        "arguments": "{\"server_label\":\"fake\",\"tool_name\":\"read_file\",\"arguments\":{\"path\":\"README.md\"}}"
                                     }
                                 }
                             ]
@@ -64,7 +65,7 @@ impl Respond for SequenceResponder {
                     }
                 ]
             })),
-            _ => ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            _ => ResponseTemplate::new(200).set_body_json(json!({
                 "id": "chatcmpl-3",
                 "choices": [
                     {
@@ -81,18 +82,64 @@ impl Respond for SequenceResponder {
     }
 }
 
+#[derive(Default)]
+struct FakeMcpBackend {
+    list_tools_calls: AtomicUsize,
+    call_tool_calls: AtomicUsize,
+}
+
+#[async_trait]
+impl McpBackend for FakeMcpBackend {
+    async fn list_tools(
+        &self,
+        _query: Option<&str>,
+        _server_label: Option<&str>,
+    ) -> anyhow::Result<Value> {
+        self.list_tools_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({
+            "tools": [
+                {
+                    "server_label": "fake",
+                    "tool_name": "read_file",
+                    "description": "Read a file safely",
+                    "json_schema": { "type": "object", "properties": { "path": { "type": "string" } } }
+                }
+            ]
+        }))
+    }
+
+    async fn call_tool(
+        &self,
+        server_label: &str,
+        tool_name: &str,
+        arguments: Value,
+    ) -> anyhow::Result<Value> {
+        self.call_tool_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({
+            "server_label": server_label,
+            "tool_name": tool_name,
+            "result": {
+                "content": format!("fake_result for {}", arguments)
+            }
+        }))
+    }
+
+    async fn list_resources(&self, _server_label: Option<&str>) -> anyhow::Result<Value> {
+        Ok(json!({ "resources": [] }))
+    }
+
+    async fn read_resource(&self, server_label: &str, uri: &str) -> anyhow::Result<Value> {
+        Ok(json!({
+            "server_label": server_label,
+            "uri": uri,
+            "result": "fake_resource"
+        }))
+    }
+}
+
 #[tokio::test]
-#[serial]
 async fn mcp_virtual_tool_loop_runs_to_completion() {
     let server = MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .and(path("/v1/models"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "data": [{"id": "openai/gpt-oss-20b"}]
-        })))
-        .mount(&server)
-        .await;
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
@@ -102,20 +149,30 @@ async fn mcp_virtual_tool_loop_runs_to_completion() {
         .mount(&server)
         .await;
 
-    let config_dir = TempDir::new().expect("tempdir");
+    let client = OpenAiClient::new(server.uri(), String::new(), 10, 0, 10).expect("client");
+    let backend = FakeMcpBackend::default();
 
-    cargo_bin_cmd!("aihelp")
-        .env("AIHELP_CONFIG_DIR", config_dir.path())
-        .env("AIHELP_NONINTERACTIVE", "1")
-        .arg("--endpoint")
-        .arg(server.uri())
-        .arg("--mcp")
-        .arg("--mcp-max-tool-calls")
-        .arg("8")
-        .arg("--mcp-max-round-trips")
-        .arg("6")
-        .arg("find tools and summarize")
-        .assert()
-        .success()
-        .stdout(contains("Final answer after tool loop"));
+    let opts = AgentRunOptions {
+        model: "openai/gpt-oss-20b".to_string(),
+        stream: false,
+        json: false,
+        dry_run: false,
+        quiet: true,
+        mcp_enabled: true,
+        mcp_max_tool_calls: 8,
+        mcp_max_round_trips: 6,
+    };
+
+    run_agent(
+        &client,
+        Some(&backend),
+        "find tools and summarize",
+        None,
+        &opts,
+    )
+    .await
+    .expect("agent run should succeed");
+
+    assert_eq!(backend.list_tools_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(backend.call_tool_calls.load(Ordering::SeqCst), 1);
 }

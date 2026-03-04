@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_ENDPOINT: &str = "http://192.168.50.2:1234";
 pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b";
 pub const DEFAULT_MAX_STDIN_BYTES: usize = 200_000;
-pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+pub const DEFAULT_TIMEOUT_SECS: u64 = 120;
+pub const DEFAULT_RETRY_ATTEMPTS: usize = 2;
+pub const DEFAULT_RETRY_BACKOFF_MS: u64 = 500;
 pub const DEFAULT_STREAM_BY_DEFAULT: bool = true;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +59,10 @@ pub struct AppConfig {
     pub max_stdin_bytes: usize,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    #[serde(default = "default_retry_attempts")]
+    pub retry_attempts: usize,
+    #[serde(default = "default_retry_backoff_ms")]
+    pub retry_backoff_ms: u64,
     #[serde(default = "default_stream_by_default")]
     pub stream_by_default: bool,
     #[serde(default)]
@@ -71,6 +77,8 @@ impl Default for AppConfig {
             model: default_model(),
             max_stdin_bytes: default_max_stdin_bytes(),
             timeout_secs: default_timeout_secs(),
+            retry_attempts: default_retry_attempts(),
+            retry_backoff_ms: default_retry_backoff_ms(),
             stream_by_default: default_stream_by_default(),
             mcp: McpConfig::default(),
         }
@@ -251,6 +259,14 @@ fn default_max_stdin_bytes() -> usize {
 
 fn default_timeout_secs() -> u64 {
     DEFAULT_TIMEOUT_SECS
+}
+
+fn default_retry_attempts() -> usize {
+    DEFAULT_RETRY_ATTEMPTS
+}
+
+fn default_retry_backoff_ms() -> u64 {
+    DEFAULT_RETRY_BACKOFF_MS
 }
 
 fn default_stream_by_default() -> bool {

@@ -1,4 +1,4 @@
-.TH AIHELP 1 "March 2026" "aihelp 0.3.0" "User Commands"
+.TH AIHELP 1 "March 2026" "aihelp 0.3.1" "User Commands"
 .SH NAME
 aihelp \- LM Studio + MCP CLI helper
 .SH SYNOPSIS
@@ -42,6 +42,12 @@ Maximum stdin bytes to include as context.
 .B --timeout-secs <N>
 HTTP timeout in seconds.
 .TP
+.B --retries <N>
+Retry transient LM Studio request failures N times.
+.TP
+.B --retry-backoff-ms <N>
+Base backoff in milliseconds between retries.
+.TP
 .B --json
 Emit JSON output (or NDJSON when streaming).
 .TP
@@ -84,6 +90,9 @@ MCP should be enabled by default. It then prints one-time override guidance:
 .PP
 If non-interactive (or \fBAIHELP_NONINTERACTIVE=1\fR), no prompt is shown and MCP
 defaults to disabled.
+.PP
+If MCP is enabled but no MCP servers are configured, aihelp warns and falls back to
+non-MCP mode for that run.
 .SH EXAMPLES
 .nf
 aihelp "Hello can you hear me?"

@@ -133,7 +133,7 @@ async fn run_mcp_loop(
         let response = client
             .chat_completion(&request)
             .await
-            .with_context(|| format!("chat completion failed at MCP round {}", round + 1))?;
+            .map_err(|err| enrich_mcp_round_error(err, round + 1))?;
 
         let assistant_msg = response
             .response
@@ -239,6 +239,16 @@ async fn run_mcp_loop(
         opts.mcp_max_round_trips,
     )?;
     Ok(())
+}
+
+fn enrich_mcp_round_error(err: anyhow::Error, round: usize) -> anyhow::Error {
+    let lower = err.to_string().to_ascii_lowercase();
+    if lower.contains("timeout") || lower.contains("timed out") {
+        return err.context(format!(
+            "chat completion failed at MCP round {round}. The request timed out. Try --timeout-secs <N>, --retries <N>, or run without MCP via --no-mcp."
+        ));
+    }
+    err.context(format!("chat completion failed at MCP round {round}"))
 }
 
 async fn execute_virtual_tool(backend: &dyn McpBackend, call: &ToolCall) -> Value {
