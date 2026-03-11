@@ -7,7 +7,7 @@ on:
 
 jobs:
   cargo-audit:
-    runs-on: [self-hosted, linux, x64, aihelp]
+    runs-on: [self-hosted, Linux, X64, docker]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
