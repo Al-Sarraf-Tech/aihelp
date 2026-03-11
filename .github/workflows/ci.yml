@@ -1,34 +1,38 @@
 name: ci
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
 
 jobs:
   regression-security:
-    runs-on: [self-hosted, linux, x64, aihelp]
+    runs-on: [self-hosted, Linux, X64, docker]
     timeout-minutes: 45
+    env:
+      DOCKER_RUNNER_CACHE: /tmp/docker-runner
+      DOCKER_RUNNER_PRUNE: "true"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
+      - name: Initialize Docker runner cache
+        run: mkdir -p /tmp/docker-runner/{images,cache,artifacts}
 
       - name: Run full regression and security gate
-        run: bash scripts/ci/full_regression.sh
+        run: bash .github/scripts/docker-runner.sh rust:1.93-bookworm "bash scripts/ci/full_regression.sh"
 
   sanity-check:
-    runs-on: [self-hosted, linux, x64, aihelp]
+    runs-on: [self-hosted, Linux, X64, docker]
     timeout-minutes: 30
+    env:
+      DOCKER_RUNNER_CACHE: /tmp/docker-runner
+      DOCKER_RUNNER_PRUNE: "true"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Initialize Docker runner cache
+        run: mkdir -p /tmp/docker-runner/{images,cache,artifacts}
 
       - name: Compile sanity check
-        run: cargo check --all-features --all-targets
+        run: bash .github/scripts/docker-runner.sh rust:1.93-bookworm "cargo check --all-features --all-targets"
