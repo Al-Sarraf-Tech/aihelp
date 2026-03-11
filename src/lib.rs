@@ -70,7 +70,7 @@ TROUBLESHOOT
 pub struct Cli {
     #[arg(
         value_name = "QUESTION",
-        required_unless_present_any = ["list_models", "list_flags", "model", "setup"]
+        required_unless_present_any = ["list_models", "list_flags", "model", "setup", "mcp"]
     )]
     pub question: Vec<String>,
 
