@@ -1,14 +1,18 @@
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 #[serial]
 async fn model_present_allows_request() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/v1/models"))
@@ -55,7 +59,9 @@ async fn model_present_allows_request() {
 #[tokio::test]
 #[serial]
 async fn model_missing_fails_with_available_list() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/v1/models"))

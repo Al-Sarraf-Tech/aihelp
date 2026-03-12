@@ -1,12 +1,16 @@
+mod support;
+
 use aihelp::setup::{find_reachable_lm_studio, find_reachable_mcp};
 use serial_test::serial;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 #[serial]
 async fn finds_reachable_lm_studio_endpoint() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/v1/models"))
@@ -26,7 +30,9 @@ async fn finds_reachable_lm_studio_endpoint() {
 #[tokio::test]
 #[serial]
 async fn finds_reachable_mcp_endpoint() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/mcp"))

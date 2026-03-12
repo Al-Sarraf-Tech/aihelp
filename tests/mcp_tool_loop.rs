@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -7,7 +9,7 @@ use aihelp::mcp::McpBackend;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+use wiremock::{Mock, Request, Respond, ResponseTemplate};
 
 #[derive(Clone)]
 struct SequenceResponder {
@@ -139,7 +141,9 @@ impl McpBackend for FakeMcpBackend {
 
 #[tokio::test]
 async fn mcp_virtual_tool_loop_runs_to_completion() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))

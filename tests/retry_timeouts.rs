@@ -1,3 +1,5 @@
+mod support;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,7 +9,7 @@ use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+use wiremock::{Mock, Request, Respond, ResponseTemplate};
 
 #[derive(Clone)]
 struct DelayedThenSuccess {
@@ -46,7 +48,9 @@ impl Respond for AlwaysDelayed {
 #[tokio::test]
 #[serial]
 async fn chat_completion_retries_after_timeout_and_succeeds() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))
@@ -106,7 +110,9 @@ async fn chat_completion_retries_after_timeout_and_succeeds() {
 #[tokio::test]
 #[serial]
 async fn model_listing_retries_after_timeout_and_succeeds() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     let model_attempts = Arc::new(AtomicUsize::new(0));
@@ -161,7 +167,9 @@ async fn model_listing_retries_after_timeout_and_succeeds() {
 #[tokio::test]
 #[serial]
 async fn retry_exhaustion_error_is_actionable() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))

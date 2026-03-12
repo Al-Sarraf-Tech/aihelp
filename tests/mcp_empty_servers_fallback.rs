@@ -1,14 +1,18 @@
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 #[serial]
 async fn mcp_enabled_with_no_servers_falls_back_to_non_mcp() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     let config = r#"

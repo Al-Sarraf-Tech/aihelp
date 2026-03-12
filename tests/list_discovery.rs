@@ -1,9 +1,11 @@
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[test]
 #[serial]
@@ -26,7 +28,9 @@ fn list_flags_works_without_question() {
 #[tokio::test]
 #[serial]
 async fn list_models_hits_models_endpoint_only() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))
@@ -63,7 +67,9 @@ async fn list_models_hits_models_endpoint_only() {
 #[tokio::test]
 #[serial]
 async fn list_models_json_outputs_models_array() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))

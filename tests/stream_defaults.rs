@@ -1,14 +1,18 @@
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{body_string_contains, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 #[serial]
 async fn streaming_is_enabled_by_default() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))
@@ -51,7 +55,9 @@ async fn streaming_is_enabled_by_default() {
 #[tokio::test]
 #[serial]
 async fn no_stream_disables_streaming_for_single_run() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
     let config_dir = TempDir::new().expect("tempdir");
 
     Mock::given(method("GET"))

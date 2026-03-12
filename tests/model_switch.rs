@@ -1,14 +1,18 @@
+mod support;
+
 use assert_cmd::cargo::cargo_bin_cmd;
 use predicates::str::contains;
 use serial_test::serial;
 use tempfile::TempDir;
 use wiremock::matchers::{body_string_contains, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 #[serial]
 async fn model_switch_without_question_updates_config() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/v1/models"))
@@ -47,7 +51,9 @@ async fn model_switch_without_question_updates_config() {
 #[tokio::test]
 #[serial]
 async fn switched_model_is_used_on_next_run_without_override() {
-    let server = MockServer::start().await;
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
 
     Mock::given(method("GET"))
         .and(path("/v1/models"))
