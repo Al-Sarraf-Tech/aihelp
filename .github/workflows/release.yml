@@ -9,6 +9,10 @@ jobs:
   build:
     name: build-${{ matrix.os }}
     runs-on: [self-hosted, Linux, X64, docker]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +54,11 @@ jobs:
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/aihelp.exe" "aihelp.exe"
           Compress-Archive -Path "aihelp.exe" -DestinationPath "dist/${{ matrix.asset }}" -Force
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/${{ matrix.asset }}
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
