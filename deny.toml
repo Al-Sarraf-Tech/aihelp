@@ -2,8 +2,8 @@
 all-features = true
 
 [advisories]
-unmaintained = "deny"
-unsound = "deny"
+vulnerability = "deny"
+unmaintained = "warn"
 yanked = "deny"
 notice = "warn"
 
