@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   regression-security:
     runs-on: [self-hosted, Linux, X64, docker]
