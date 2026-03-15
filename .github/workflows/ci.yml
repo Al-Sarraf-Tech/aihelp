@@ -12,14 +12,12 @@ concurrency:
 
 jobs:
   regression-security:
-    runs-on: [self-hosted, Linux, X64, docker]
+    runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       DOCKER_RUNNER_CACHE: /tmp/docker-runner
       DOCKER_RUNNER_PRUNE: "true"
     steps:
-      - name: Fix ownership
-        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
 
       - uses: actions/checkout@v4
 
@@ -30,14 +28,12 @@ jobs:
         run: bash .github/scripts/docker-runner.sh rust:1.93-bookworm "bash scripts/ci/full_regression.sh"
 
   sanity-check:
-    runs-on: [self-hosted, Linux, X64, docker]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       DOCKER_RUNNER_CACHE: /tmp/docker-runner
       DOCKER_RUNNER_PRUNE: "true"
     steps:
-      - name: Fix ownership
-        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
 
       - uses: actions/checkout@v4
 
