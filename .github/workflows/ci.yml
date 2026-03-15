@@ -18,6 +18,9 @@ jobs:
       DOCKER_RUNNER_CACHE: /tmp/docker-runner
       DOCKER_RUNNER_PRUNE: "true"
     steps:
+      - name: Fix ownership
+        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
+
       - uses: actions/checkout@v4
 
       - name: Initialize Docker runner cache
@@ -33,6 +36,9 @@ jobs:
       DOCKER_RUNNER_CACHE: /tmp/docker-runner
       DOCKER_RUNNER_PRUNE: "true"
     steps:
+      - name: Fix ownership
+        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
+
       - uses: actions/checkout@v4
 
       - name: Initialize Docker runner cache

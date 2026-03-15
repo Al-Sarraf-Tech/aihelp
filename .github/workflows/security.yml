@@ -21,6 +21,9 @@ jobs:
     name: Cargo Audit
     runs-on: [self-hosted, Linux, X64, docker]
     steps:
+      - name: Fix ownership
+        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Bootstrap cargo-audit
@@ -32,6 +35,9 @@ jobs:
     name: Cargo Deny
     runs-on: [self-hosted, Linux, X64, docker]
     steps:
+      - name: Fix ownership
+        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
+
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-deny
@@ -43,6 +49,9 @@ jobs:
     name: Gitleaks Secret Scan
     runs-on: [self-hosted, Linux, X64, docker]
     steps:
+      - name: Fix ownership
+        run: sudo chown -R $(whoami) ${{ github.workspace }} 2>/dev/null || true
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
