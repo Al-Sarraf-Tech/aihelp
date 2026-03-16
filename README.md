@@ -1,8 +1,8 @@
 # aihelp
 
 [![CI](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml/badge.svg)](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml)
-[![Security](https://github.com/jalsarraf0/aihelp/actions/workflows/security.yml/badge.svg)](https://github.com/jalsarraf0/aihelp/actions/workflows/security.yml)
-[![Release](https://github.com/jalsarraf0/aihelp/actions/workflows/release.yml/badge.svg)](https://github.com/jalsarraf0/aihelp/actions/workflows/release.yml)
+
+> CI runs on self-hosted runners managed by [haskell-ci-orchestrator](https://github.com/jalsarraf0/haskell-ci-orchestrator) with build attestation.
 
 `aihelp` is a cross-platform Rust CLI for LM Studio (OpenAI-compatible API) with optional MCP tool discovery and tool-calling orchestration.
 
