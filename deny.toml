@@ -2,10 +2,7 @@
 all-features = true
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "deny"
-notice = "warn"
+version = 2
 
 [bans]
 multiple-versions = "warn"
@@ -30,6 +27,7 @@ allow = [
   "CC0-1.0",
   "MPL-2.0",
   "BSL-1.0",
+  "CDLA-Permissive-2.0",
 ]
 
 [sources]
