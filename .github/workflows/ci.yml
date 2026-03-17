@@ -19,6 +19,11 @@ permissions:
 concurrency:
   group: aihelp-ci-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  CARGO_HOME: /home/runner/.cargo
+  RUSTUP_TMPDIR: /tmp/rustup
+
 jobs:
   lint:
     name: Lint
