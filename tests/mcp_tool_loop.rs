@@ -165,6 +165,7 @@ async fn mcp_virtual_tool_loop_runs_to_completion() {
         mcp_enabled: true,
         mcp_max_tool_calls: 8,
         mcp_max_round_trips: 6,
+        debug_stream: false,
     };
 
     run_agent(

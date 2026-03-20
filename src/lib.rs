@@ -147,6 +147,12 @@ pub struct Cli {
     #[arg(long = "list-endpoints", conflicts_with_all = ["list_models", "list_flags"])]
     pub list_endpoints: bool,
 
+    #[arg(
+        long = "debug-stream",
+        help = "Print per-token timestamps to stderr for stream diagnostics"
+    )]
+    pub debug_stream: bool,
+
     #[arg(long = "setup")]
     pub setup: bool,
 }
@@ -306,6 +312,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         mcp_enabled: effective_mcp_enabled,
         mcp_max_tool_calls: settings.mcp_max_tool_calls,
         mcp_max_round_trips: settings.mcp_max_round_trips,
+        debug_stream: cli.debug_stream,
     };
 
     run_agent(
@@ -609,6 +616,10 @@ fn print_available_flags(as_json: bool) -> Result<()> {
         FlagDescriptor {
             flag: "--mcp-policy <read_only|allow_list|all>",
             description: "Override MCP tool allow policy.",
+        },
+        FlagDescriptor {
+            flag: "--debug-stream",
+            description: "Print per-token timestamps to stderr for stream diagnostics.",
         },
     ];
 

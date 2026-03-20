@@ -27,6 +27,8 @@ impl OpenAiClient {
     ) -> Result<Self> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
+            .tcp_nodelay(true)
+            .no_proxy()
             .build()
             .context("failed to build HTTP client")?;
 
@@ -376,7 +378,7 @@ impl OpenAiClient {
             }
 
             let mut bytes_stream = resp.bytes_stream();
-            let mut buf = String::new();
+            let mut raw_buf: Vec<u8> = Vec::new();
             let mut done = false;
             let mut emitted_data = false;
 
@@ -413,11 +415,23 @@ impl OpenAiClient {
                     }
                 };
 
-                buf.push_str(&String::from_utf8_lossy(&chunk));
+                raw_buf.extend_from_slice(&chunk);
 
-                while let Some(idx) = buf.find("\n\n") {
-                    let event_block = buf[..idx].to_string();
-                    buf = buf[idx + 2..].to_string();
+                // SSE delimiters (\n\n) are pure ASCII, so we can scan raw
+                // bytes for them without a full UTF-8 decode.  We only convert
+                // individual event blocks to &str, which avoids both the
+                // unsafe-code lint AND corrupting multi-byte sequences that
+                // straddle TCP chunk boundaries.
+                let mut search_start: usize = 0;
+                while let Some(rel) = find_double_newline(&raw_buf[search_start..]) {
+                    let idx = search_start + rel;
+                    let event_bytes = &raw_buf[search_start..idx];
+                    search_start = idx + 2;
+
+                    // Decode this single event block.  If it contains a
+                    // partial UTF-8 tail it means the server sent malformed
+                    // data — lossy fallback is acceptable for one event.
+                    let event_block = String::from_utf8_lossy(event_bytes);
 
                     if event_block.trim().is_empty() {
                         continue;
@@ -486,6 +500,12 @@ impl OpenAiClient {
                     }
                 }
 
+                // Drain consumed bytes; keep any unconsumed tail (including
+                // partial UTF-8 sequences) for the next iteration.
+                if search_start > 0 {
+                    raw_buf.drain(..search_start);
+                }
+
                 if done {
                     break;
                 }
@@ -534,6 +554,11 @@ impl OpenAiClient {
             Self::retry_hint()
         )
     }
+}
+
+/// Locate `\n\n` in a byte slice.  Returns the index of the first `\n`.
+fn find_double_newline(buf: &[u8]) -> Option<usize> {
+    buf.windows(2).position(|w| w == b"\n\n")
 }
 
 fn extract_sse_data(event_block: &str) -> String {

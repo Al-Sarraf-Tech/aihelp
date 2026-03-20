@@ -1,3 +1,6 @@
+use std::io::Write;
+use std::time::Instant;
+
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
@@ -7,6 +10,54 @@ use crate::mcp::{
     ReadResourceArgs,
 };
 use crate::prompt::{build_user_message, StdinContext, SYSTEM_PROMPT};
+
+/// Shared state for the `--debug-stream` per-token diagnostics.
+struct DebugStreamState {
+    enabled: bool,
+    t0: Instant,
+    token_count: usize,
+}
+
+impl DebugStreamState {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            t0: Instant::now(),
+            token_count: 0,
+        }
+    }
+
+    /// Record a token and print live stats to stderr.  Call this from the
+    /// `on_text_delta` callback.
+    fn on_token(&mut self, delta: &str) {
+        if !self.enabled {
+            return;
+        }
+        self.token_count += 1;
+        let elapsed = self.t0.elapsed();
+        eprint!(
+            "\r\x1b[K[stream] tok={} t={:.1}ms gap={:.1}ms len={}",
+            self.token_count,
+            elapsed.as_secs_f64() * 1000.0,
+            elapsed.as_secs_f64() * 1000.0 / self.token_count as f64,
+            delta.len(),
+        );
+    }
+
+    /// Print the final summary line to stderr.
+    fn finish(&self) {
+        if !self.enabled {
+            return;
+        }
+        let elapsed = self.t0.elapsed();
+        eprintln!(
+            "\n[stream] done: {} tokens in {:.1}ms ({:.1} tok/s)",
+            self.token_count,
+            elapsed.as_secs_f64() * 1000.0,
+            self.token_count as f64 / elapsed.as_secs_f64(),
+        );
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct AgentRunOptions {
@@ -18,6 +69,7 @@ pub struct AgentRunOptions {
     pub mcp_enabled: bool,
     pub mcp_max_tool_calls: usize,
     pub mcp_max_round_trips: usize,
+    pub debug_stream: bool,
 }
 
 pub async fn run_agent(
@@ -71,17 +123,21 @@ async fn run_single_turn(
             return Ok(());
         }
 
+        let mut dbg = DebugStreamState::new(opts.debug_stream);
         client
             .chat_completion_stream(
                 &req,
                 |delta| {
+                    dbg.on_token(delta);
                     print!("{delta}");
+                    std::io::stdout().flush().ok();
                     Ok(())
                 },
                 |_| Ok(()),
             )
             .await
             .context("streaming chat completion failed")?;
+        dbg.finish();
         println!();
         return Ok(());
     }
@@ -174,17 +230,21 @@ async fn run_mcp_loop(
                     return Ok(());
                 }
 
+                let mut dbg = DebugStreamState::new(opts.debug_stream);
                 client
                     .chat_completion_stream(
                         &final_request,
                         |delta| {
+                            dbg.on_token(delta);
                             print!("{delta}");
+                            std::io::stdout().flush().ok();
                             Ok(())
                         },
                         |_| Ok(()),
                     )
                     .await
                     .context("final streaming synthesis failed")?;
+                dbg.finish();
                 println!();
                 return Ok(());
             }
