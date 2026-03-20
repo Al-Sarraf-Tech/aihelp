@@ -3,6 +3,7 @@
 pub mod agent;
 pub mod client;
 pub mod config;
+pub mod endpoint;
 pub mod mcp;
 pub mod prompt;
 pub mod setup;
@@ -19,6 +20,7 @@ use tracing_subscriber::EnvFilter;
 use crate::agent::{run_agent, AgentRunOptions};
 use crate::client::OpenAiClient;
 use crate::config::{AppConfig, McpAllowPolicy};
+use crate::endpoint::select_endpoint;
 use crate::mcp::RmcpBackend;
 use crate::prompt::read_stdin_context;
 use crate::setup::run_setup_wizard;
@@ -44,6 +46,12 @@ STREAMING
 RETRIES
   Retry transient errors:  aihelp --retries 2 --retry-backoff-ms 500 "question"
   Increase timeout:         aihelp --timeout-secs 180 "question"
+
+MULTI-ENDPOINT
+  List endpoints:          aihelp --list-endpoints
+  Override for one run:    aihelp --endpoint http://127.0.0.1:1235 "question"
+  Strategies:              preferred (default), fallback, round_robin, model_route
+  Configure in config.toml [[endpoints]] sections or via --setup.
 
 MCP WORKFLOW
   Enable per-run:          aihelp --mcp "question"
@@ -72,7 +80,7 @@ TROUBLESHOOT
 pub struct Cli {
     #[arg(
         value_name = "QUESTION",
-        required_unless_present_any = ["list_models", "list_flags", "model", "setup", "mcp"]
+        required_unless_present_any = ["list_models", "list_flags", "list_endpoints", "model", "setup", "mcp"]
     )]
     pub question: Vec<String>,
 
@@ -130,11 +138,14 @@ pub struct Cli {
     #[arg(long = "mcp-max-round-trips")]
     pub mcp_max_round_trips: Option<usize>,
 
-    #[arg(long = "list-models", conflicts_with = "list_flags")]
+    #[arg(long = "list-models", conflicts_with_all = ["list_flags", "list_endpoints"])]
     pub list_models: bool,
 
-    #[arg(long = "list-flags", conflicts_with = "list_models")]
+    #[arg(long = "list-flags", conflicts_with_all = ["list_models", "list_endpoints"])]
     pub list_flags: bool,
+
+    #[arg(long = "list-endpoints", conflicts_with_all = ["list_models", "list_flags"])]
+    pub list_endpoints: bool,
 
     #[arg(long = "setup")]
     pub setup: bool,
@@ -177,6 +188,10 @@ pub async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
+    if cli.list_endpoints {
+        return run_list_endpoints(&cli).await;
+    }
+
     if cli.list_models {
         return run_list_models(&cli).await;
     }
@@ -206,8 +221,19 @@ pub async fn run(cli: Cli) -> Result<()> {
         .await
         .context("failed to load configuration")?;
 
-    let settings = resolve_settings(&cli, &config);
+    let mut settings = resolve_settings(&cli, &config);
     let mut effective_mcp_enabled = settings.mcp_enabled;
+
+    let resolved = select_endpoint(
+        cli.endpoint.as_deref(),
+        &config.resolved_endpoints(),
+        config.endpoint_strategy,
+        &settings.model,
+        &config.model_routing,
+    )
+    .await?;
+    settings.endpoint = resolved.url.clone();
+    settings.api_key = resolved.api_key.clone();
 
     if effective_mcp_enabled && config.mcp.servers.is_empty() {
         if !settings.quiet {
@@ -223,8 +249,8 @@ pub async fn run(cli: Cli) -> Result<()> {
     }
 
     let client = OpenAiClient::new(
-        settings.endpoint.clone(),
-        settings.api_key.clone(),
+        resolved.url.clone(),
+        resolved.api_key.clone(),
         settings.timeout_secs,
         settings.retry_attempts,
         settings.retry_backoff_ms,
@@ -399,9 +425,18 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
     let config = load_existing_config_or_default()?;
     let settings = resolve_settings(cli, &config);
 
+    let resolved = select_endpoint(
+        cli.endpoint.as_deref(),
+        &config.resolved_endpoints(),
+        config.endpoint_strategy,
+        &settings.model,
+        &config.model_routing,
+    )
+    .await?;
+
     let client = OpenAiClient::new(
-        settings.endpoint.clone(),
-        settings.api_key.clone(),
+        resolved.url.clone(),
+        resolved.api_key.clone(),
         settings.timeout_secs,
         settings.retry_attempts,
         settings.retry_backoff_ms,
@@ -417,7 +452,7 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
         println!(
             "{}",
             serde_json::to_string_pretty(&json!({
-                "endpoint": settings.endpoint,
+                "endpoint": resolved.url,
                 "selected_model": settings.model,
                 "models": models
             }))?
@@ -425,7 +460,7 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
         return Ok(());
     }
 
-    println!("Models available at {}:", settings.endpoint);
+    println!("Models available at {}:", resolved.url);
     for model in &models {
         if model == &settings.model {
             println!("* {} (selected)", model);
@@ -442,6 +477,48 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
         eprintln!("Use --model <ID> to select a model for a run.");
     }
 
+    Ok(())
+}
+
+async fn run_list_endpoints(cli: &Cli) -> Result<()> {
+    let config = load_existing_config_or_default()?;
+    let endpoints = config.resolved_endpoints();
+    let statuses = crate::endpoint::list_endpoint_status(&endpoints).await;
+
+    if cli.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "strategy": format!("{}", config.endpoint_strategy),
+                "endpoints": statuses.iter().map(|s| json!({
+                    "label": s.label,
+                    "url": s.url,
+                    "priority": s.priority,
+                    "reachable": s.reachable,
+                    "models": s.models,
+                })).collect::<Vec<_>>(),
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Endpoints (strategy: {}):", config.endpoint_strategy);
+    for s in &statuses {
+        let status = if s.reachable {
+            "\u{2713} reachable"
+        } else {
+            "\u{2717} unreachable"
+        };
+        println!(
+            "  {} [priority={}] {} ({})",
+            s.label, s.priority, s.url, status
+        );
+        if !s.models.is_empty() {
+            for m in &s.models {
+                println!("    - {}", m);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -472,6 +549,10 @@ fn print_available_flags(as_json: bool) -> Result<()> {
         FlagDescriptor {
             flag: "--list-models",
             description: "List callable model IDs from <endpoint>/v1/models.",
+        },
+        FlagDescriptor {
+            flag: "--list-endpoints",
+            description: "List configured endpoints and their reachability status.",
         },
         FlagDescriptor {
             flag: "--setup",

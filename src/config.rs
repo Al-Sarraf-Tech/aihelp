@@ -9,12 +9,57 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_ENDPOINT: &str = "http://192.168.50.2:1234";
+pub const DEFAULT_LOCAL_ENDPOINT: &str = "http://127.0.0.1:1235";
 pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b";
 pub const DEFAULT_MAX_STDIN_BYTES: usize = 200_000;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 120;
 pub const DEFAULT_RETRY_ATTEMPTS: usize = 2;
 pub const DEFAULT_RETRY_BACKOFF_MS: u64 = 500;
 pub const DEFAULT_STREAM_BY_DEFAULT: bool = true;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndpointConfig {
+    pub label: String,
+    pub url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EndpointStrategy {
+    Preferred,
+    Fallback,
+    RoundRobin,
+    ModelRoute,
+}
+
+impl Display for EndpointStrategy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preferred => f.write_str("preferred"),
+            Self::Fallback => f.write_str("fallback"),
+            Self::RoundRobin => f.write_str("round_robin"),
+            Self::ModelRoute => f.write_str("model_route"),
+        }
+    }
+}
+
+impl std::str::FromStr for EndpointStrategy {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "preferred" => Ok(Self::Preferred),
+            "fallback" => Ok(Self::Fallback),
+            "round_robin" => Ok(Self::RoundRobin),
+            "model_route" => Ok(Self::ModelRoute),
+            _ => bail!("invalid endpoint strategy: {s}"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,6 +112,12 @@ pub struct AppConfig {
     pub stream_by_default: bool,
     #[serde(default)]
     pub mcp: McpConfig,
+    #[serde(default)]
+    pub endpoints: Vec<EndpointConfig>,
+    #[serde(default = "default_endpoint_strategy")]
+    pub endpoint_strategy: EndpointStrategy,
+    #[serde(default)]
+    pub model_routing: HashMap<String, String>,
 }
 
 impl Default for AppConfig {
@@ -81,7 +132,26 @@ impl Default for AppConfig {
             retry_backoff_ms: default_retry_backoff_ms(),
             stream_by_default: default_stream_by_default(),
             mcp: McpConfig::default(),
+            endpoints: Vec::new(),
+            endpoint_strategy: default_endpoint_strategy(),
+            model_routing: HashMap::new(),
         }
+    }
+}
+
+impl AppConfig {
+    /// Returns the resolved list of endpoints. If `endpoints` vec is non-empty, use it.
+    /// Otherwise, synthesize a single endpoint from the legacy `endpoint` + `api_key` fields.
+    pub fn resolved_endpoints(&self) -> Vec<EndpointConfig> {
+        if !self.endpoints.is_empty() {
+            return self.endpoints.clone();
+        }
+        vec![EndpointConfig {
+            label: "default".to_string(),
+            url: self.endpoint.clone(),
+            api_key: self.api_key.clone(),
+            priority: 0,
+        }]
     }
 }
 
@@ -154,6 +224,14 @@ pub fn sanitized_for_display(config: &AppConfig) -> AppConfig {
     if let Some(api_key) = out.api_key.as_mut() {
         if !api_key.is_empty() {
             *api_key = "***REDACTED***".to_string();
+        }
+    }
+
+    for ep in &mut out.endpoints {
+        if let Some(key) = ep.api_key.as_mut() {
+            if !key.is_empty() {
+                *key = "***REDACTED***".to_string();
+            }
         }
     }
 
@@ -271,6 +349,14 @@ fn default_retry_backoff_ms() -> u64 {
 
 fn default_stream_by_default() -> bool {
     DEFAULT_STREAM_BY_DEFAULT
+}
+
+fn default_priority() -> u8 {
+    0
+}
+
+fn default_endpoint_strategy() -> EndpointStrategy {
+    EndpointStrategy::Preferred
 }
 
 fn default_allow_policy() -> McpAllowPolicy {

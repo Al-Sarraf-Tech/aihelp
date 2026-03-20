@@ -8,7 +8,9 @@ use futures_util::future::join_all;
 use reqwest::StatusCode;
 
 use crate::client::OpenAiClient;
-use crate::config::{self, AppConfig, McpServerConfig, DEFAULT_ENDPOINT, DEFAULT_MODEL};
+use crate::config::{
+    self, AppConfig, EndpointConfig, McpServerConfig, DEFAULT_ENDPOINT, DEFAULT_MODEL,
+};
 
 const MCP_COMMON_PORTS: [u16; 8] = [7000, 7001, 7002, 7003, 8000, 8080, 8081, 9000];
 
@@ -32,7 +34,51 @@ pub async fn run_setup_wizard(existing: Option<AppConfig>, quiet: bool) -> Resul
         .first()
         .cloned()
         .unwrap_or_else(|| config.endpoint.clone());
-    config.endpoint = prompt_with_default("LM Studio endpoint", &endpoint_default)?;
+    config.endpoint = ensure_url_scheme(&prompt_with_default(
+        "LM Studio endpoint",
+        &endpoint_default,
+    )?);
+
+    let should_add_more =
+        prompt_yes_no("Configure additional LM Studio endpoints? (y/N): ", false)?;
+    if should_add_more {
+        loop {
+            let url = ensure_url_scheme(&prompt_with_default(
+                "Additional endpoint URL (empty to stop)",
+                "",
+            )?);
+
+            if url.is_empty() {
+                break;
+            }
+            let label = prompt_with_default("Label for this endpoint", &auto_label_from_url(&url))?;
+            let priority_str = prompt_with_default("Priority (0=highest, default 10)", "10")?;
+            let priority: u8 = priority_str.parse().unwrap_or(10);
+
+            config.endpoints.push(EndpointConfig {
+                label,
+                url,
+                api_key: None,
+                priority,
+            });
+        }
+
+        if !config.endpoints.is_empty() {
+            // Also add the primary endpoint to the endpoints list if not already there
+            let primary_exists = config.endpoints.iter().any(|e| e.url == config.endpoint);
+            if !primary_exists {
+                config.endpoints.insert(
+                    0,
+                    EndpointConfig {
+                        label: "primary".to_string(),
+                        url: config.endpoint.clone(),
+                        api_key: config.api_key.clone(),
+                        priority: 0,
+                    },
+                );
+            }
+        }
+    }
 
     let model_timeout = config.timeout_secs.clamp(1, 5);
     let models = fetch_models_for_setup(
@@ -150,6 +196,7 @@ fn lm_studio_candidates() -> Vec<String> {
 
     push_unique(&mut out, &mut seen, DEFAULT_ENDPOINT.to_string());
     push_unique(&mut out, &mut seen, "http://127.0.0.1:1234".to_string());
+    push_unique(&mut out, &mut seen, "http://127.0.0.1:1235".to_string());
     push_unique(&mut out, &mut seen, "http://localhost:1234".to_string());
 
     for ip in local_ipv4_strings() {
@@ -283,6 +330,20 @@ fn add_detected_mcp_servers(config: &mut AppConfig, endpoints: &[String]) {
     }
 }
 
+fn auto_label_from_url(url: &str) -> String {
+    // Extract a reasonable label from URL
+    // "http://192.168.50.2:1234" -> "192-168-50-2"
+    // "http://127.0.0.1:1235" -> "local-1235"
+    // "http://localhost:1234" -> "localhost"
+    url.trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split(':')
+        .next()
+        .unwrap_or("endpoint")
+        .replace('.', "-")
+        .to_string()
+}
+
 fn prompt_with_default(label: &str, default: &str) -> Result<String> {
     eprint!("{label} [{default}]: ");
     io::stderr().flush().ok();
@@ -331,5 +392,63 @@ fn local_ipv4_strings() -> Vec<String> {
 fn push_unique(out: &mut Vec<String>, seen: &mut HashSet<String>, value: String) {
     if seen.insert(value.clone()) {
         out.push(value);
+    }
+}
+
+/// Auto-prepend `http://` when the user enters a bare `host:port` or `host`
+/// without a URL scheme.  Returns the input unchanged if it already has a
+/// scheme or is empty.
+fn ensure_url_scheme(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() || trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return trimmed.to_string();
+    }
+    format!("http://{trimmed}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_host_port_gets_scheme() {
+        assert_eq!(
+            ensure_url_scheme("192.168.50.5:1235"),
+            "http://192.168.50.5:1235"
+        );
+    }
+
+    #[test]
+    fn bare_host_gets_scheme() {
+        assert_eq!(ensure_url_scheme("localhost"), "http://localhost");
+    }
+
+    #[test]
+    fn http_url_unchanged() {
+        assert_eq!(
+            ensure_url_scheme("http://192.168.50.5:1235"),
+            "http://192.168.50.5:1235"
+        );
+    }
+
+    #[test]
+    fn https_url_unchanged() {
+        assert_eq!(
+            ensure_url_scheme("https://example.com:1234"),
+            "https://example.com:1234"
+        );
+    }
+
+    #[test]
+    fn empty_input_stays_empty() {
+        assert_eq!(ensure_url_scheme(""), "");
+    }
+
+    #[test]
+    fn whitespace_trimmed_and_scheme_added() {
+        assert_eq!(
+            ensure_url_scheme("  10.0.0.1:9999  "),
+            "http://10.0.0.1:9999"
+        );
     }
 }
