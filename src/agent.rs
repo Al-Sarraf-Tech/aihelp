@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
@@ -15,14 +14,17 @@ use crate::prompt::{build_user_message, StdinContext, SYSTEM_PROMPT};
 struct DebugStreamState {
     enabled: bool,
     t0: Instant,
+    last_token: Instant,
     token_count: usize,
 }
 
 impl DebugStreamState {
     fn new(enabled: bool) -> Self {
+        let now = Instant::now();
         Self {
             enabled,
-            t0: Instant::now(),
+            t0: now,
+            last_token: now,
             token_count: 0,
         }
     }
@@ -33,13 +35,16 @@ impl DebugStreamState {
         if !self.enabled {
             return;
         }
+        let now = Instant::now();
+        let gap = now.duration_since(self.last_token);
+        self.last_token = now;
         self.token_count += 1;
         let elapsed = self.t0.elapsed();
         eprint!(
             "\r\x1b[K[stream] tok={} t={:.1}ms gap={:.1}ms len={}",
             self.token_count,
             elapsed.as_secs_f64() * 1000.0,
-            elapsed.as_secs_f64() * 1000.0 / self.token_count as f64,
+            gap.as_secs_f64() * 1000.0,
             delta.len(),
         );
     }
@@ -49,12 +54,17 @@ impl DebugStreamState {
         if !self.enabled {
             return;
         }
-        let elapsed = self.t0.elapsed();
+        let secs = self.t0.elapsed().as_secs_f64();
+        let tok_per_sec = if secs > 0.0 {
+            self.token_count as f64 / secs
+        } else {
+            0.0
+        };
         eprintln!(
             "\n[stream] done: {} tokens in {:.1}ms ({:.1} tok/s)",
             self.token_count,
-            elapsed.as_secs_f64() * 1000.0,
-            self.token_count as f64 / elapsed.as_secs_f64(),
+            secs * 1000.0,
+            tok_per_sec,
         );
     }
 }
@@ -130,8 +140,7 @@ async fn run_single_turn(
                 |delta| {
                     dbg.on_token(delta);
                     print!("{delta}");
-                    std::io::stdout().flush().ok();
-                    Ok(())
+                    flush_stdout()
                 },
                 |_| Ok(()),
             )
@@ -237,8 +246,7 @@ async fn run_mcp_loop(
                         |delta| {
                             dbg.on_token(delta);
                             print!("{delta}");
-                            std::io::stdout().flush().ok();
-                            Ok(())
+                            flush_stdout()
                         },
                         |_| Ok(()),
                     )
@@ -407,6 +415,20 @@ fn print_json_line(value: &Value) -> Result<()> {
         "{}",
         serde_json::to_string(value).context("failed to serialize NDJSON line")?
     );
+    Ok(())
+}
+
+/// Flush stdout, propagating broken-pipe as an error so the streaming
+/// loop exits cleanly when the downstream consumer (e.g. `head`, `grep`)
+/// closes the pipe.
+fn flush_stdout() -> Result<()> {
+    use std::io::{ErrorKind, Write};
+    if let Err(e) = std::io::stdout().flush() {
+        if e.kind() == ErrorKind::BrokenPipe {
+            return Err(anyhow::anyhow!("stdout closed (broken pipe)"));
+        }
+        return Err(anyhow::Error::from(e).context("failed to flush stdout"));
+    }
     Ok(())
 }
 

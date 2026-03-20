@@ -25,12 +25,18 @@ impl OpenAiClient {
         retry_attempts: usize,
         retry_backoff_ms: u64,
     ) -> Result<Self> {
-        let http = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
-            .tcp_nodelay(true)
-            .no_proxy()
-            .build()
-            .context("failed to build HTTP client")?;
+            .tcp_nodelay(true);
+
+        // Bypass proxy for localhost and private-network LM Studio endpoints.
+        // Respect system proxy settings for everything else so users behind
+        // corporate proxies are not silently broken.
+        if is_local_endpoint(&base_url) {
+            builder = builder.no_proxy();
+        }
+
+        let http = builder.build().context("failed to build HTTP client")?;
 
         Ok(Self {
             http,
@@ -417,6 +423,17 @@ impl OpenAiClient {
 
                 raw_buf.extend_from_slice(&chunk);
 
+                // Guard against unbounded growth if the server never sends
+                // a \n\n delimiter (malformed SSE or adversarial input).
+                const MAX_SSE_BUF: usize = 16 * 1024 * 1024; // 16 MiB
+                if raw_buf.len() > MAX_SSE_BUF {
+                    bail!(
+                        "SSE buffer exceeded {} MiB without a complete event delimiter. \
+                         The server may be sending malformed SSE data.",
+                        MAX_SSE_BUF / (1024 * 1024)
+                    );
+                }
+
                 // SSE delimiters (\n\n) are pure ASCII, so we can scan raw
                 // bytes for them without a full UTF-8 decode.  We only convert
                 // individual event blocks to &str, which avoids both the
@@ -428,10 +445,22 @@ impl OpenAiClient {
                     let event_bytes = &raw_buf[search_start..idx];
                     search_start = idx + 2;
 
-                    // Decode this single event block.  If it contains a
-                    // partial UTF-8 tail it means the server sent malformed
-                    // data — lossy fallback is acceptable for one event.
-                    let event_block = String::from_utf8_lossy(event_bytes);
+                    // Decode this single event block.  A complete event
+                    // between two \n\n delimiters should always be valid
+                    // UTF-8 (since \n cannot appear inside a multi-byte
+                    // sequence).  If it is not, the server sent malformed
+                    // data — warn and fall back to lossy conversion.
+                    let event_block = match std::str::from_utf8(event_bytes) {
+                        Ok(s) => std::borrow::Cow::Borrowed(s),
+                        Err(e) => {
+                            tracing::warn!(
+                                "SSE event contained invalid UTF-8 at byte offset {}; \
+                                 replacing invalid sequences",
+                                e.valid_up_to()
+                            );
+                            String::from_utf8_lossy(event_bytes)
+                        }
+                    };
 
                     if event_block.trim().is_empty() {
                         continue;
@@ -511,6 +540,41 @@ impl OpenAiClient {
                 }
             }
 
+            // Warn if the stream ended with unconsumed data in the buffer
+            // (e.g. the server dropped the connection mid-event without a
+            // trailing \n\n).  Try to salvage a final event if present.
+            if !raw_buf.is_empty() {
+                let remaining = String::from_utf8_lossy(&raw_buf);
+                let trimmed = remaining.trim();
+                if !trimmed.is_empty() {
+                    let data = extract_sse_data(trimmed);
+                    if !data.is_empty() && data != "[DONE]" {
+                        if let Ok(chunk_json) = serde_json::from_str::<Value>(&data) {
+                            if let Ok(parsed_chunk) =
+                                serde_json::from_value::<ChatCompletionChunk>(chunk_json.clone())
+                            {
+                                on_chunk_json(&chunk_json)?;
+                                raw_chunks.push(chunk_json);
+                                for choice in parsed_chunk.choices {
+                                    if let Some(reason) = choice.finish_reason {
+                                        finish_reason = Some(reason);
+                                    }
+                                    if let Some(content) = choice.delta.content {
+                                        text_acc.push_str(&content);
+                                        on_text_delta(&content)?;
+                                    }
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                "stream ended with {} bytes of unconsumed SSE data",
+                                raw_buf.len()
+                            );
+                        }
+                    }
+                }
+            }
+
             let tool_calls: Vec<ToolCall> = tool_calls_acc.values().cloned().collect();
             let message = ChatMessage {
                 role: "assistant".to_string(),
@@ -559,6 +623,41 @@ impl OpenAiClient {
 /// Locate `\n\n` in a byte slice.  Returns the index of the first `\n`.
 fn find_double_newline(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == b"\n\n")
+}
+
+/// Returns `true` if `url` points to localhost or a private-network address
+/// (RFC 1918 / link-local).  Used to skip proxy lookups for LAN LM Studio.
+fn is_local_endpoint(url: &str) -> bool {
+    let host = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))
+        .unwrap_or(url)
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" {
+        return true;
+    }
+
+    // RFC 1918 private ranges: 10.x, 172.16-31.x, 192.168.x
+    if let Some(first) = host.split('.').next() {
+        if first == "10" || first == "192" {
+            return host.starts_with("10.") || host.starts_with("192.168.");
+        }
+        if first == "172" {
+            if let Some(second) = host.split('.').nth(1) {
+                if let Ok(n) = second.parse::<u8>() {
+                    return (16..=31).contains(&n);
+                }
+            }
+        }
+    }
+
+    false
 }
 
 fn extract_sse_data(event_block: &str) -> String {
