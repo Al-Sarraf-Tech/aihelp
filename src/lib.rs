@@ -278,6 +278,10 @@ pub async fn run(cli: Cli) -> Result<()> {
     let stdin_context = read_stdin_context(settings.max_stdin_bytes)?;
     let question = cli.question.join(" ");
 
+    if question.trim().is_empty() && stdin_context.is_none() && !settings.dry_run {
+        anyhow::bail!("no question provided. Pass a question as positional argument(s), or pipe content via stdin.");
+    }
+
     if !settings.dry_run {
         client
             .verify_model_presence(&settings.model)
@@ -337,8 +341,13 @@ fn resolve_settings(cli: &Cli, config: &AppConfig) -> EffectiveSettings {
         .clone()
         .unwrap_or_else(|| config.api_key.clone().unwrap_or_default());
     let model = cli.model.clone().unwrap_or_else(|| config.model.clone());
-    let max_stdin_bytes = cli.max_stdin_bytes.unwrap_or(config.max_stdin_bytes);
-    let timeout_secs = cli.timeout_secs.unwrap_or(config.timeout_secs);
+    // Cap stdin buffer to 50 MiB to prevent OOM on unreasonable values.
+    const MAX_STDIN_CAP: usize = 50 * 1024 * 1024;
+    let max_stdin_bytes = cli
+        .max_stdin_bytes
+        .unwrap_or(config.max_stdin_bytes)
+        .min(MAX_STDIN_CAP);
+    let timeout_secs = cli.timeout_secs.unwrap_or(config.timeout_secs).max(1);
     let retry_attempts = cli.retries.unwrap_or(config.retry_attempts);
     let retry_backoff_ms = cli
         .retry_backoff_ms

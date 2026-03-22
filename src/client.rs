@@ -26,7 +26,7 @@ impl OpenAiClient {
         retry_backoff_ms: u64,
     ) -> Result<Self> {
         let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
+            .timeout(Duration::from_secs(timeout_secs.max(1)))
             .tcp_nodelay(true);
 
         // Bypass proxy for localhost and private-network LM Studio endpoints.

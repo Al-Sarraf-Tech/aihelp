@@ -43,7 +43,13 @@ pub fn truncate_stdin_bytes(input: &[u8], max_bytes: usize) -> (Vec<u8>, bool) {
     if input.len() <= max_bytes {
         return (input.to_vec(), false);
     }
-    (input[..max_bytes].to_vec(), true)
+    // Walk backwards from the cut-point to avoid splitting a multi-byte
+    // UTF-8 sequence, which would produce replacement characters.
+    let mut cut = max_bytes;
+    while cut > 0 && (input[cut] & 0xC0) == 0x80 {
+        cut -= 1;
+    }
+    (input[..cut].to_vec(), true)
 }
 
 pub fn build_user_message(question: &str, stdin_context: Option<&StdinContext>) -> String {
