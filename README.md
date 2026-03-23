@@ -211,6 +211,10 @@ The setup wizard auto-prepends `http://` when a bare `host:port` is entered.
 - No local file modifications from model output.
 - MCP default policy: `read_only`.
 - Write/exec-like tools blocked unless policy is loosened (`allow_list` or `all`).
+- Empty query guard: fails fast with a clear error if no question and no stdin is provided.
+- Stdin capped at 50 MiB to prevent OOM on unreasonable inputs; configurable via `--max-stdin-bytes`.
+- Stdin is truncated at a valid UTF-8 boundary to avoid replacement characters in the prompt.
+- Endpoint port validation: rejects bare hostnames or malformed URLs before any network attempt.
 
 ## Troubleshooting
 
