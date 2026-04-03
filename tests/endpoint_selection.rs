@@ -258,6 +258,47 @@ fn config_with_endpoints_roundtrips() {
     std::env::remove_var("AIHELP_CONFIG_DIR");
 }
 
+#[tokio::test]
+#[serial]
+async fn model_route_fallthrough_uses_preferred_when_label_missing() {
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
+    mount_models_endpoint(&server, vec!["unknown-model"]).await;
+
+    let endpoints = vec![
+        EndpointConfig {
+            label: "primary".to_string(),
+            url: server.uri(),
+            api_key: None,
+            priority: 0,
+        },
+        EndpointConfig {
+            label: "secondary".to_string(),
+            url: "http://127.0.0.1:9".to_string(),
+            api_key: None,
+            priority: 1,
+        },
+    ];
+
+    // Routing table maps "unknown-model" to a label that doesn't exist
+    let mut routing = HashMap::new();
+    routing.insert("unknown-model".to_string(), "nonexistent-label".to_string());
+
+    let resolved = select_endpoint(
+        None,
+        &endpoints,
+        EndpointStrategy::ModelRoute,
+        "unknown-model",
+        &routing,
+    )
+    .await
+    .expect("should fall through to preferred");
+
+    // Should fall through to highest-priority reachable (primary)
+    assert_eq!(resolved.label, "primary");
+}
+
 // Helper
 async fn mount_models_endpoint(server: &MockServer, model_ids: Vec<&str>) {
     let data: Vec<_> = model_ids

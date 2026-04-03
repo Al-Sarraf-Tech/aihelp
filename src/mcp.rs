@@ -161,6 +161,12 @@ impl McpBackend for RmcpBackend {
         let server = self.find_server(server_label)?;
 
         if !self.tool_allowed(server, tool_name) {
+            tracing::warn!(
+                policy = %self.policy,
+                server = server_label,
+                tool = tool_name,
+                "MCP tool call blocked by allow policy"
+            );
             bail!(
                 "MCP tool blocked by allow policy '{}' (server={}, tool={})",
                 self.policy,

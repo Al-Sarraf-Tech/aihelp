@@ -58,7 +58,7 @@ impl OpenAiClient {
     }
 
     fn should_retry_reqwest_error(err: &reqwest::Error) -> bool {
-        err.is_timeout() || err.is_connect() || err.is_request() || err.is_body()
+        err.is_timeout() || err.is_connect()
     }
 
     fn is_timeout_like_error(err: &reqwest::Error) -> bool {
@@ -218,8 +218,19 @@ impl OpenAiClient {
             };
 
             let status = resp.status();
+
+            // Cap response body to 16 MiB to prevent OOM from misbehaving servers.
+            const MAX_RESPONSE_BODY: usize = 16 * 1024 * 1024;
             let raw_text = match resp.text().await {
-                Ok(text) => text,
+                Ok(text) => {
+                    if text.len() > MAX_RESPONSE_BODY {
+                        bail!(
+                            "/v1/chat/completions response exceeded {} MiB limit",
+                            MAX_RESPONSE_BODY / (1024 * 1024)
+                        );
+                    }
+                    text
+                }
                 Err(err) => {
                     let retryable = Self::should_retry_reqwest_error(&err);
                     if retryable && attempt + 1 < max_attempts {
@@ -252,6 +263,10 @@ impl OpenAiClient {
                 }
 
                 bail!("/v1/chat/completions returned {status}: {raw_text}");
+            }
+
+            if raw_text.trim().is_empty() {
+                bail!("server returned HTTP 200 with an empty body — the endpoint may be misconfigured");
             }
 
             let raw_json: Value = serde_json::from_str(&raw_text)
@@ -440,10 +455,10 @@ impl OpenAiClient {
                 // unsafe-code lint AND corrupting multi-byte sequences that
                 // straddle TCP chunk boundaries.
                 let mut search_start: usize = 0;
-                while let Some(rel) = find_double_newline(&raw_buf[search_start..]) {
+                while let Some((rel, delim_len)) = find_event_delimiter(&raw_buf[search_start..]) {
                     let idx = search_start + rel;
                     let event_bytes = &raw_buf[search_start..idx];
-                    search_start = idx + 2;
+                    search_start = idx + delim_len;
 
                     // Decode this single event block.  A complete event
                     // between two \n\n delimiters should always be valid
@@ -620,9 +635,22 @@ impl OpenAiClient {
     }
 }
 
-/// Locate `\n\n` in a byte slice.  Returns the index of the first `\n`.
-fn find_double_newline(buf: &[u8]) -> Option<usize> {
-    buf.windows(2).position(|w| w == b"\n\n")
+/// Locate an SSE event delimiter (`\n\n` or `\r\n\r\n`) in a byte slice.
+/// Returns `(position, delimiter_length)` so the caller can drain the correct
+/// number of bytes.
+pub fn find_event_delimiter(buf: &[u8]) -> Option<(usize, usize)> {
+    // Check for \r\n\r\n (4 bytes) first to avoid a false \n\n match inside it.
+    if buf.len() >= 4 {
+        for i in 0..=buf.len() - 4 {
+            if &buf[i..i + 4] == b"\r\n\r\n" {
+                return Some((i, 4));
+            }
+        }
+    }
+    // Fall back to \n\n (2 bytes).
+    buf.windows(2)
+        .position(|w| w == b"\n\n")
+        .map(|pos| (pos, 2))
 }
 
 /// Returns `true` if `url` points to localhost or a private-network address
@@ -660,7 +688,7 @@ fn is_local_endpoint(url: &str) -> bool {
     false
 }
 
-fn extract_sse_data(event_block: &str) -> String {
+pub fn extract_sse_data(event_block: &str) -> String {
     let mut data_lines = Vec::new();
 
     for line in event_block.lines() {
@@ -795,13 +823,13 @@ pub struct ChatChoice {
 }
 
 #[derive(Debug, Deserialize)]
-struct ModelsResponse {
-    data: Vec<ModelInfo>,
+pub struct ModelsResponse {
+    pub data: Vec<ModelInfo>,
 }
 
 #[derive(Debug, Deserialize)]
-struct ModelInfo {
-    id: String,
+pub struct ModelInfo {
+    pub id: String,
 }
 
 #[derive(Debug, Deserialize)]

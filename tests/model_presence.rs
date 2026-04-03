@@ -88,3 +88,31 @@ async fn model_missing_fails_with_available_list() {
         .stderr(contains("foo-model"))
         .stderr(contains("--model <ID>"));
 }
+
+#[tokio::test]
+#[serial]
+async fn empty_model_list_fails_with_none_indicator() {
+    let Some(server) = support::start_mock_server_if_available().await else {
+        return;
+    };
+
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": []
+        })))
+        .mount(&server)
+        .await;
+
+    let config_dir = TempDir::new().expect("tempdir");
+
+    cargo_bin_cmd!("aihelp")
+        .env("AIHELP_CONFIG_DIR", config_dir.path())
+        .env("AIHELP_NONINTERACTIVE", "1")
+        .arg("--endpoint")
+        .arg(server.uri())
+        .arg("hello")
+        .assert()
+        .failure()
+        .stderr(contains("<none>"));
+}

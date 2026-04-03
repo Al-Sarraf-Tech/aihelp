@@ -11,6 +11,7 @@ use crate::client::OpenAiClient;
 use crate::config::{
     self, AppConfig, EndpointConfig, McpServerConfig, DEFAULT_ENDPOINT, DEFAULT_MODEL,
 };
+use crate::endpoint::probe_endpoint;
 
 const MCP_COMMON_PORTS: [u16; 8] = [7000, 7001, 7002, 7003, 8000, 8080, 8081, 9000];
 
@@ -168,7 +169,7 @@ pub async fn detect_mcp_http_endpoints(timeout_millis: u64) -> Vec<String> {
 
 pub async fn find_reachable_lm_studio(candidates: Vec<String>, timeout_secs: u64) -> Vec<String> {
     let checks = candidates.into_iter().map(|candidate| async move {
-        if probe_lmstudio_endpoint(&candidate, timeout_secs).await {
+        if probe_endpoint(&candidate, timeout_secs).await {
             Some(candidate)
         } else {
             None
@@ -229,26 +230,6 @@ async fn fetch_models_for_setup(
 ) -> Result<Vec<String>> {
     let client = OpenAiClient::new(endpoint.to_string(), api_key, timeout_secs, 1, 200)?;
     client.list_models().await
-}
-
-async fn probe_lmstudio_endpoint(endpoint: &str, timeout_secs: u64) -> bool {
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(timeout_secs.max(1)))
-        .build()
-    {
-        Ok(client) => client,
-        Err(_) => return false,
-    };
-
-    let url = format!("{}/v1/models", endpoint.trim_end_matches('/'));
-    match client.get(url).send().await {
-        Ok(resp) => {
-            resp.status().is_success()
-                || resp.status() == StatusCode::UNAUTHORIZED
-                || resp.status() == StatusCode::FORBIDDEN
-        }
-        Err(_) => false,
-    }
 }
 
 async fn probe_mcp_endpoint(endpoint: &str, timeout_millis: u64) -> bool {

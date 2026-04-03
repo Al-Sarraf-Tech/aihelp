@@ -50,10 +50,11 @@ impl DebugStreamState {
     }
 
     /// Print the final summary line to stderr.
-    fn finish(&self) {
+    fn finish(&mut self) {
         if !self.enabled {
             return;
         }
+        self.enabled = false; // prevent double-print from Drop
         let secs = self.t0.elapsed().as_secs_f64();
         let tok_per_sec = if secs > 0.0 {
             self.token_count as f64 / secs
@@ -66,6 +67,12 @@ impl DebugStreamState {
             secs * 1000.0,
             tok_per_sec,
         );
+    }
+}
+
+impl Drop for DebugStreamState {
+    fn drop(&mut self) {
+        self.finish();
     }
 }
 
@@ -211,6 +218,17 @@ async fn run_mcp_loop(
         }
 
         let tool_calls = assistant_msg.tool_calls.clone().unwrap_or_default();
+
+        // Always push the assistant message so the synthesis pass includes it.
+        messages.push(ChatMessage::assistant(
+            assistant_msg.content.clone(),
+            if tool_calls.is_empty() {
+                None
+            } else {
+                Some(tool_calls.clone())
+            },
+        ));
+
         if tool_calls.is_empty() {
             if opts.stream {
                 // Stream a final synthesis pass without tools so output can be incremental.
@@ -265,11 +283,6 @@ async fn run_mcp_loop(
             println!("{}", assistant_msg.content.unwrap_or_default());
             return Ok(());
         }
-
-        messages.push(ChatMessage::assistant(
-            assistant_msg.content.clone(),
-            Some(tool_calls.clone()),
-        ));
 
         for call in tool_calls {
             if tool_calls_executed >= opts.mcp_max_tool_calls {

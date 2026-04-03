@@ -50,7 +50,7 @@ RETRIES
 MULTI-ENDPOINT
   List endpoints:          aihelp --list-endpoints
   Override for one run:    aihelp --endpoint http://127.0.0.1:1235 "question"
-  Strategies:              preferred (default), fallback, round_robin, model_route
+  Strategies:              preferred (default), fallback, parallel_probe, model_route
   Configure in config.toml [[endpoints]] sections or via --setup.
 
 MCP WORKFLOW
@@ -182,7 +182,7 @@ pub async fn run(cli: Cli) -> Result<()> {
     init_tracing(cli.quiet);
 
     let noninteractive_forced = std::env::var("AIHELP_NONINTERACTIVE")
-        .map(|v| v == "1")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
         .unwrap_or(false);
 
     let stdin_is_tty = std::io::stdin().is_terminal();
@@ -286,7 +286,9 @@ pub async fn run(cli: Cli) -> Result<()> {
         client
             .verify_model_presence(&settings.model)
             .await
-            .context("model verification failed")?;
+            .context(
+            "model verification failed. Check that LM Studio is running and the model is loaded.",
+        )?;
     }
 
     if !settings.dry_run {
@@ -351,7 +353,8 @@ fn resolve_settings(cli: &Cli, config: &AppConfig) -> EffectiveSettings {
     let retry_attempts = cli.retries.unwrap_or(config.retry_attempts);
     let retry_backoff_ms = cli
         .retry_backoff_ms
-        .unwrap_or(config.retry_backoff_ms.max(1));
+        .unwrap_or(config.retry_backoff_ms)
+        .max(1);
     let stream = if cli.no_stream {
         false
     } else if cli.stream {
@@ -489,7 +492,7 @@ async fn run_list_models(cli: &Cli) -> Result<()> {
         println!("(no models returned by endpoint)");
     }
 
-    if !settings.quiet {
+    if !settings.quiet && std::io::stdout().is_terminal() {
         eprintln!("Use --model <ID> to select a model for a run.");
     }
 

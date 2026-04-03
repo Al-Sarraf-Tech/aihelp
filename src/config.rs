@@ -26,13 +26,34 @@ pub struct EndpointConfig {
     pub priority: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EndpointStrategy {
     Preferred,
     Fallback,
-    RoundRobin,
+    /// Probes all endpoints in parallel and picks the first reachable one by
+    /// priority order.  Accepts both `parallel_probe` and `round_robin` in
+    /// config for backward compatibility.
+    ParallelProbe,
     ModelRoute,
+}
+
+impl Serialize for EndpointStrategy {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for EndpointStrategy {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 impl Display for EndpointStrategy {
@@ -40,7 +61,7 @@ impl Display for EndpointStrategy {
         match self {
             Self::Preferred => f.write_str("preferred"),
             Self::Fallback => f.write_str("fallback"),
-            Self::RoundRobin => f.write_str("round_robin"),
+            Self::ParallelProbe => f.write_str("parallel_probe"),
             Self::ModelRoute => f.write_str("model_route"),
         }
     }
@@ -53,7 +74,7 @@ impl std::str::FromStr for EndpointStrategy {
         match s {
             "preferred" => Ok(Self::Preferred),
             "fallback" => Ok(Self::Fallback),
-            "round_robin" => Ok(Self::RoundRobin),
+            "parallel_probe" | "round_robin" => Ok(Self::ParallelProbe),
             "model_route" => Ok(Self::ModelRoute),
             _ => bail!("invalid endpoint strategy: {s}"),
         }

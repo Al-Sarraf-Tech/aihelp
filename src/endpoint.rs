@@ -6,8 +6,8 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 use futures_util::future::join_all;
 use reqwest::StatusCode;
-use serde::Deserialize;
 
+use crate::client::ModelsResponse;
 use crate::config::{EndpointConfig, EndpointStrategy};
 
 /// Result of endpoint selection — the chosen endpoint's URL and API key.
@@ -80,10 +80,11 @@ pub async fn select_endpoint(
                     api_key: ep.api_key.clone().unwrap_or_default(),
                 });
             }
-            tracing::debug!(
+            tracing::warn!(
                 model = model,
                 target_label = %target_label,
-                "model_routing label not found in endpoints, falling through to Preferred"
+                "model_routing label '{}' not found in endpoints, falling through to Preferred",
+                target_label
             );
         }
         // Fall through to Preferred behaviour when no routing match.
@@ -108,7 +109,7 @@ pub async fn select_endpoint(
                 }
             }
         }
-        EndpointStrategy::RoundRobin => {
+        EndpointStrategy::ParallelProbe => {
             // Probe all in parallel, pick first reachable (by priority order).
             let futures: Vec<_> = sorted
                 .iter()
@@ -147,7 +148,7 @@ pub async fn select_endpoint(
 ///
 /// Returns `true` if the endpoint responds with 200, 401, or 403
 /// (all indicate the service is alive).
-async fn probe_endpoint(url: &str, timeout_secs: u64) -> bool {
+pub async fn probe_endpoint(url: &str, timeout_secs: u64) -> bool {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs.max(1)))
         .build()
@@ -197,18 +198,6 @@ pub async fn list_endpoint_status(endpoints: &[EndpointConfig]) -> Vec<EndpointS
         .collect();
 
     join_all(futures).await
-}
-
-/// Response from the OpenAI-compatible `/v1/models` endpoint.
-#[derive(Debug, Deserialize)]
-struct ModelsResponse {
-    data: Vec<ModelEntry>,
-}
-
-/// A single model entry in the `/v1/models` response.
-#[derive(Debug, Deserialize)]
-struct ModelEntry {
-    id: String,
 }
 
 /// Fetch the model list from an endpoint, returning an empty vec on any failure.

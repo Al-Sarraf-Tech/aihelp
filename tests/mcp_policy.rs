@@ -34,3 +34,18 @@ fn allow_list_policy_requires_explicit_match() {
 fn all_policy_allows_everything() {
     assert!(is_tool_allowed(McpAllowPolicy::All, &[], "anything_goes"));
 }
+
+#[test]
+fn allow_list_with_empty_list_blocks_all_tools() {
+    let empty: Vec<String> = vec![];
+    assert!(!is_tool_allowed(
+        McpAllowPolicy::AllowList,
+        &empty,
+        "read_file"
+    ));
+    assert!(!is_tool_allowed(
+        McpAllowPolicy::AllowList,
+        &empty,
+        "any_tool"
+    ));
+}
