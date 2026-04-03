@@ -286,9 +286,40 @@ async fn connect_http(
         .context("MCP HTTP client handshake failed")
 }
 
+/// Environment variables safe to pass through to MCP stdio child processes.
+/// Everything else (API keys, tokens, secrets) is stripped via `env_clear()`.
+const PASSTHROUGH_ENV: &[&str] = &[
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "COLORTERM",
+    "RUST_LOG",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "XDG_RUNTIME_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+];
+
 async fn connect_stdio(command: &str, args: &[String]) -> Result<RunningService<RoleClient, ()>> {
     let mut cmd = tokio::process::Command::new(command);
     cmd.args(args);
+
+    // Prevent leaking API keys and other secrets to MCP child processes.
+    cmd.env_clear();
+    for key in PASSTHROUGH_ENV {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
+    }
 
     let child_transport = TokioChildProcess::new(cmd)
         .with_context(|| format!("failed to spawn MCP stdio server command: {command}"))?;

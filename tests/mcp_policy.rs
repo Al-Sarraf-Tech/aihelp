@@ -49,3 +49,28 @@ fn allow_list_with_empty_list_blocks_all_tools() {
         "any_tool"
     ));
 }
+
+#[test]
+fn read_only_positive_with_negative_blocks() {
+    // "read_and_delete" has a positive ("read") but also a negative ("delete")
+    assert!(!is_read_only_tool_name("read_and_delete"));
+}
+
+#[test]
+fn read_only_no_positive_blocks() {
+    // "compute_stats" has no positive token match at all
+    assert!(!is_read_only_tool_name("compute_stats"));
+}
+
+#[test]
+fn rm_token_blocked_in_read_context() {
+    // "list_rm_files" has positive ("list") but "rm" as a word token blocks it
+    assert!(!is_read_only_tool_name("list_rm_files"));
+}
+
+#[test]
+fn firmware_not_rm_false_positive() {
+    // "get_firmware" has positive ("get") and "firmware" contains "rm" as a
+    // substring but NOT as a standalone word token — should be allowed
+    assert!(is_read_only_tool_name("get_firmware"));
+}

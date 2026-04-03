@@ -275,7 +275,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
-    let stdin_context = read_stdin_context(settings.max_stdin_bytes)?;
+    let stdin_context = read_stdin_context(settings.max_stdin_bytes).await?;
     let question = cli.question.join(" ");
 
     if question.trim().is_empty() && stdin_context.is_none() && !settings.dry_run {

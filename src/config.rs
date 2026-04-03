@@ -338,8 +338,19 @@ pub fn load_config(path: &Path) -> Result<AppConfig> {
 
 pub fn save_config(path: &Path, config: &AppConfig) -> Result<()> {
     let raw = toml::to_string_pretty(config).context("failed to serialize config TOML")?;
-    fs::write(path, raw)
-        .with_context(|| format!("failed to write config file: {}", path.display()))?;
+
+    // Atomic write: write to a sibling temp file then rename, so a kill
+    // mid-write cannot corrupt the real config.  rename() is atomic on
+    // POSIX when src and dst are on the same filesystem (guaranteed here
+    // because the temp file is a sibling in the same directory).
+    let tmp_path = path.with_extension("toml.tmp");
+    fs::write(&tmp_path, &raw)
+        .with_context(|| format!("failed to write temp config: {}", tmp_path.display()))?;
+    if let Err(err) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path); // best-effort cleanup
+        return Err(err)
+            .with_context(|| format!("failed to rename temp config to {}", path.display()));
+    }
     Ok(())
 }
 

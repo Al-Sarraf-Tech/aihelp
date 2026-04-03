@@ -460,6 +460,17 @@ impl OpenAiClient {
                     let event_bytes = &raw_buf[search_start..idx];
                     search_start = idx + delim_len;
 
+                    // Cap individual events to prevent a single huge event
+                    // from consuming excessive memory.
+                    const MAX_SSE_EVENT: usize = 1024 * 1024; // 1 MiB per event
+                    if event_bytes.len() > MAX_SSE_EVENT {
+                        bail!(
+                            "SSE event exceeded 1 MiB limit ({} bytes). \
+                             The server may be sending malformed SSE data.",
+                            event_bytes.len()
+                        );
+                    }
+
                     // Decode this single event block.  A complete event
                     // between two \n\n delimiters should always be valid
                     // UTF-8 (since \n cannot appear inside a multi-byte
@@ -656,18 +667,26 @@ pub fn find_event_delimiter(buf: &[u8]) -> Option<(usize, usize)> {
 /// Returns `true` if `url` points to localhost or a private-network address
 /// (RFC 1918 / link-local).  Used to skip proxy lookups for LAN LM Studio.
 fn is_local_endpoint(url: &str) -> bool {
-    let host = url
+    let host_and_port = url
         .strip_prefix("http://")
         .or_else(|| url.strip_prefix("https://"))
         .unwrap_or(url)
         .split('/')
         .next()
-        .unwrap_or("")
-        .split(':')
-        .next()
         .unwrap_or("");
 
-    if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]" {
+    // Handle IPv6 bracket notation: http://[::1]:1234
+    let host = if host_and_port.starts_with('[') {
+        host_and_port
+            .split(']')
+            .next()
+            .unwrap_or("")
+            .trim_start_matches('[')
+    } else {
+        host_and_port.split(':').next().unwrap_or("")
+    };
+
+    if host == "localhost" || host == "127.0.0.1" || host == "::1" {
         return true;
     }
 
@@ -870,4 +889,59 @@ struct ChunkToolFunctionDelta {
     name: Option<String>,
     #[serde(default)]
     arguments: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_local_endpoint;
+
+    #[test]
+    fn loopback_ipv4() {
+        assert!(is_local_endpoint("http://127.0.0.1:1234"));
+    }
+
+    #[test]
+    fn localhost() {
+        assert!(is_local_endpoint("http://localhost:1234"));
+    }
+
+    #[test]
+    fn ipv6_loopback_bracket() {
+        assert!(is_local_endpoint("http://[::1]:1234"));
+    }
+
+    #[test]
+    fn rfc1918_10_x() {
+        assert!(is_local_endpoint("http://10.0.0.1:1234"));
+    }
+
+    #[test]
+    fn rfc1918_192_168() {
+        assert!(is_local_endpoint("http://192.168.1.1:1234"));
+    }
+
+    #[test]
+    fn rfc1918_172_16() {
+        assert!(is_local_endpoint("http://172.16.0.1:1234"));
+    }
+
+    #[test]
+    fn rfc1918_172_31_upper_bound() {
+        assert!(is_local_endpoint("http://172.31.255.255:1234"));
+    }
+
+    #[test]
+    fn rfc1918_172_32_outside() {
+        assert!(!is_local_endpoint("http://172.32.0.1:1234"));
+    }
+
+    #[test]
+    fn public_ip() {
+        assert!(!is_local_endpoint("http://8.8.8.8:1234"));
+    }
+
+    #[test]
+    fn public_hostname() {
+        assert!(!is_local_endpoint("http://example.com:1234"));
+    }
 }

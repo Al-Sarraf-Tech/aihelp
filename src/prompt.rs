@@ -12,31 +12,35 @@ pub struct StdinContext {
     pub max_bytes: usize,
 }
 
-pub fn read_stdin_context(max_bytes: usize) -> Result<Option<StdinContext>> {
+pub async fn read_stdin_context(max_bytes: usize) -> Result<Option<StdinContext>> {
     if std::io::stdin().is_terminal() {
         return Ok(None);
     }
 
-    let mut buf = Vec::new();
-    let mut handle = std::io::stdin()
-        .lock()
-        .take((max_bytes as u64).saturating_add(1));
-    handle
-        .read_to_end(&mut buf)
-        .context("failed to read stdin context")?;
+    let ctx = tokio::task::spawn_blocking(move || {
+        let mut buf = Vec::new();
+        let mut handle = std::io::stdin()
+            .lock()
+            .take((max_bytes as u64).saturating_add(1));
+        handle
+            .read_to_end(&mut buf)
+            .context("failed to read stdin context")?;
 
-    let (truncated_buf, truncated) = truncate_stdin_bytes(&buf, max_bytes);
-    buf = truncated_buf;
+        let (truncated_buf, truncated) = truncate_stdin_bytes(&buf, max_bytes);
+        let bytes_read = truncated_buf.len();
+        let content = String::from_utf8_lossy(&truncated_buf).to_string();
 
-    let bytes_read = buf.len();
-    let content = String::from_utf8_lossy(&buf).to_string();
+        Ok::<_, anyhow::Error>(StdinContext {
+            content,
+            truncated,
+            bytes_read,
+            max_bytes,
+        })
+    })
+    .await
+    .context("stdin reader panicked")??;
 
-    Ok(Some(StdinContext {
-        content,
-        truncated,
-        bytes_read,
-        max_bytes,
-    }))
+    Ok(Some(ctx))
 }
 
 pub fn truncate_stdin_bytes(input: &[u8], max_bytes: usize) -> (Vec<u8>, bool) {

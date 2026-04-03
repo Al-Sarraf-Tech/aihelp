@@ -88,3 +88,43 @@ max_round_trips = 6
 
     std::env::remove_var("AIHELP_CONFIG_DIR");
 }
+
+#[test]
+#[serial]
+fn config_unknown_keys_load_ok() {
+    let temp = TempDir::new().expect("tempdir");
+    std::env::set_var("AIHELP_CONFIG_DIR", temp.path());
+
+    let path = config_file_path().expect("path");
+    std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+
+    let toml_with_unknown = r#"
+endpoint = "http://localhost:1234"
+model = "test-model"
+foo_unknown_key = 42
+bar_future_feature = "hello"
+"#;
+    std::fs::write(&path, toml_with_unknown).expect("write");
+
+    let loaded = load_config(&path).expect("should load despite unknown keys");
+    assert_eq!(loaded.endpoint, "http://localhost:1234");
+    assert_eq!(loaded.model, "test-model");
+
+    std::env::remove_var("AIHELP_CONFIG_DIR");
+}
+
+#[test]
+fn resolved_endpoints_empty_synthesizes_default() {
+    let cfg = AppConfig {
+        endpoint: "http://test:1234".to_string(),
+        api_key: Some("key123".to_string()),
+        endpoints: vec![],
+        ..AppConfig::default()
+    };
+
+    let resolved = cfg.resolved_endpoints();
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].label, "default");
+    assert_eq!(resolved[0].url, "http://test:1234");
+    assert_eq!(resolved[0].api_key.as_deref(), Some("key123"));
+}
