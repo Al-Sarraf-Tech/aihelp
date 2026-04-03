@@ -3,9 +3,7 @@ name: aihelp CI
 on:
   push:
     branches:
-    timeout-minutes: 60
       - main
-    timeout-minutes: 60
     tags:
       - v*.*.*
       - v*
@@ -16,8 +14,6 @@ on:
 permissions:
   contents: write
   id-token: write
-  attestations: write
-  security-events: write
 concurrency:
   group: aihelp-ci-${{ github.ref }}
   cancel-in-progress: true
@@ -55,7 +51,7 @@ jobs:
       - name: Clippy lints
         shell: bash
         timeout-minutes: 10
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
   test:
     name: Test
     runs-on: [self-hosted, unified-all]
@@ -88,7 +84,7 @@ jobs:
       - name: Cargo test
         shell: bash
         timeout-minutes: 15
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
   security:
     name: Security
     runs-on: [self-hosted, unified-all]
@@ -120,14 +116,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Build release binary
+        shell: bash
+        timeout-minutes: 30
+        run: cargo build --release --locked
+      - name: Stage release assets
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          mkdir -p release-assets
+          cp target/release/aihelp release-assets/
       - name: Generate checksums
         shell: bash
         timeout-minutes: 5
         run: cd release-assets && sha256sum * > SHA256SUMS
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: release-assets/*
       - name: Create GitHub Release
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
         if: startsWith(github.ref, 'refs/tags/')

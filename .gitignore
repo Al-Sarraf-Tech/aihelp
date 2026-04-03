@@ -2,3 +2,4 @@
 **/*.rs.bk
 /docker/aihelp/runner/.env
 CLAUDE.md
+firebase-debug.log

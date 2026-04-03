@@ -9,7 +9,6 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_ENDPOINT: &str = "http://192.168.50.2:1234";
-pub const DEFAULT_LOCAL_ENDPOINT: &str = "http://127.0.0.1:1235";
 pub const DEFAULT_MODEL: &str = "openai/gpt-oss-20b";
 pub const DEFAULT_MAX_STDIN_BYTES: usize = 200_000;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 120;
