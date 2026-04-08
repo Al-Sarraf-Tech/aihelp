@@ -1,6 +1,6 @@
 # aihelp
 
-[![CI](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci.yml/badge.svg)](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci.yml)
+[![CI](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci-rust.yml/badge.svg)](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci-rust.yml)
 
 > CI runs on self-hosted runners managed by the [Haskell Orchestrator](https://github.com/Al-Sarraf-Tech/Haskell-Orchestrator).
 
@@ -14,10 +14,9 @@ From source:
 cargo install --path .
 ```
 
-From release binaries:
+From release binaries (Linux x86_64):
 
-- Linux: `aihelp-<tag>-x86_64-unknown-linux-gnu.tar.gz`
-- Windows: `aihelp-<tag>-x86_64-pc-windows-msvc.zip`
+- `aihelp-<tag>-x86_64-unknown-linux-gnu.tar.gz`
 
 Download from GitHub Releases: <https://github.com/Al-Sarraf-Tech/aihelp/releases>
 
@@ -62,6 +61,11 @@ Run setup again anytime:
 aihelp --setup
 ```
 
+Environment variable overrides:
+
+- `AIHELP_NONINTERACTIVE=1` — skip interactive prompts (for CI or scripts).
+- `AIHELP_CONFIG_DIR=/path` — override the config directory.
+
 ## Discoverability Commands
 
 - List common flags quickly: `aihelp --list-flags`
@@ -89,6 +93,7 @@ aihelp --setup
 - `--quiet`
 - `--print-model`
 - `--dry-run`
+- `--debug-stream`
 - `--setup`
 - `--list-flags`
 - `--list-models`
@@ -245,9 +250,9 @@ Timeouts / intermittent latency:
 
 ## CI/CD and Security
 
-- CI workflow (`ci.yml`) runs compile sanity + full regression and security gate.
-- Security workflow (`security.yml`) runs dependency audit.
-- Release workflow (`release.yml`) builds and publishes Linux/Windows binaries on tags.
+- Main workflow (`ci-rust.yml`) runs lint, tests, security gate (cargo-audit, cargo-deny, gitleaks), and release on version tags.
+- Orchestrator workflow (`orchestrator-scan.yml`) runs the Haskell Orchestrator scan on workflow file changes.
+- Release job (inside `ci-rust.yml`) builds and publishes Linux x86_64 binaries on `v*` tags after test and security gates pass.
 
 ## Self-Hosted Runner (Optional)
 

@@ -19,7 +19,7 @@ bash ops/runner/install_to_docker_aihelp.sh
 ## Configure
 
 1. Copy `.env.example` to `.env` in `/docker/aihelp/runner`.
-2. Set `ACCESS_TOKEN` to a PAT with repo admin permissions for `jalsarraf0/aihelp`.
+2. Set `ACCESS_TOKEN` to a PAT with repo admin permissions for `Al-Sarraf-Tech/aihelp`.
 3. Confirm labels include: `self-hosted,linux,x64,aihelp`.
 
 ## Start
@@ -33,7 +33,7 @@ docker compose up -d
 
 ```bash
 docker ps --filter name=gha-runner-aihelp
-gh api repos/jalsarraf0/aihelp/actions/runners --jq '.runners[] | {name,status,busy,labels:[.labels[].name]}'
+gh api repos/Al-Sarraf-Tech/aihelp/actions/runners --jq '.runners[] | {name,status,busy,labels:[.labels[].name]}'
 ```
 
 ## Stop

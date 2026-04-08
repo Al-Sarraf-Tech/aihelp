@@ -1,6 +1,6 @@
 # CI/CD Hardening Report -- aihelp
 
-**Repository:** `jalsarraf0/aihelp`
+**Repository:** `Al-Sarraf-Tech/aihelp`
 **Date:** 2026-03-14
 **Branch:** `ci/assurance-hardening`
 
@@ -8,13 +8,11 @@
 
 ## Pre-Existing CI/CD Infrastructure
 
-aihelp had three workflows in place before hardening:
+aihelp had these workflows in place before hardening:
 
 | Workflow | Status | Notes |
 |---|---|---|
-| CI (`ci.yml`) | Operational | Docker regression, compile sanity check |
-| Security (`security.yml`) | Minimal | cargo-audit only, weekly schedule, no PR trigger |
-| Release (`release.yml`) | Operational | Multi-platform build, attestation, GitHub Release |
+| `ci-rust.yml` | Operational | Lint, test, security, Linux release build, GitHub Release |
 
 ### What Was Missing
 
@@ -31,12 +29,11 @@ aihelp had three workflows in place before hardening:
 | Item | Type | Description |
 |---|---|---|
 | `deny.toml` | New file | cargo-deny policy: deny unmaintained/unsound/yanked, license allowlist, deny unknown registries/git |
-| cargo-deny job in `security.yml` | New CI job | Runs `cargo deny check` on every push, PR, and weekly schedule |
-| Gitleaks job in `security.yml` | New CI job | Full-history secret scan with SARIF upload to GitHub Security tab |
-| Concurrency controls in `security.yml` | Workflow enhancement | `security-${{ github.ref }}` group with cancel-in-progress |
-| Push/PR triggers in `security.yml` | Workflow enhancement | Security now runs on push to main and on PRs (previously schedule-only) |
-| Permissions block in `security.yml` | Workflow enhancement | Least-privilege: `contents: read`, `security-events: write` |
-| Concurrency controls in `ci.yml` | Workflow enhancement | `ci-${{ github.ref }}` group with cancel-in-progress |
+| cargo-deny job in `ci-rust.yml` | New CI job | Runs `cargo deny check` on every push, PR, and weekly schedule |
+| Gitleaks job in `ci-rust.yml` | New CI job | Full-history secret scan via gitleaks |
+| Concurrency controls in `ci-rust.yml` | Workflow enhancement | `aihelp-ci-${{ github.ref }}` group with cancel-in-progress |
+| Push/PR triggers for security | Workflow enhancement | Security jobs now run on push to main and on PRs |
+| Least-privilege permissions in `ci-rust.yml` | Workflow enhancement | `contents: write`, `id-token: write` |
 | `ASSURANCE.md` | New file | Comprehensive software assurance document |
 | `CI_CD_HARDENING_REPORT.md` | New file | This report |
 
@@ -44,7 +41,7 @@ aihelp had three workflows in place before hardening:
 
 ## What Was NOT Changed
 
-- `release.yml` was not modified (already has attestation and proper permissions)
+- Release job inside `ci-rust.yml` was not modified (already has proper permissions)
 - No source code was modified
 - No existing CI jobs were removed or altered in behavior
 - README.md badges already covered CI, Security, and Release workflows
@@ -57,8 +54,7 @@ All changes are structural (YAML workflow definitions, TOML policy, Markdown doc
 Syntax validation:
 
 - `deny.toml`: valid TOML, matches cargo-deny schema
-- `security.yml`: valid GitHub Actions YAML
-- `ci.yml`: valid GitHub Actions YAML (concurrency block added)
+- `ci-rust.yml`: valid GitHub Actions YAML (all jobs: lint, test, security, release)
 
 ---
 

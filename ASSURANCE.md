@@ -25,11 +25,10 @@ security posture, and supply chain integrity:
 
 | Workflow | File | Trigger | Purpose |
 |---|---|---|---|
-| **CI** | `ci.yml` | push, PR, manual | Build, lint, test, Docker regression |
-| **Security** | `security.yml` | push, PR, weekly schedule, manual | Vulnerability scanning, secret detection, license/policy enforcement |
-| **Release** | `release.yml` | `v*` tags | Multi-platform build, attestation, GitHub Release publishing |
+| **CI / Security / Release** | `ci-rust.yml` | push, PR, `v*` tags, weekly schedule | Lint, test, security scanning, Linux release build |
+| **Orchestrator Scan** | `orchestrator-scan.yml` | push/PR to `.github/workflows/**` | Haskell Orchestrator governance scan |
 
-All workflows target self-hosted runners (`[self-hosted, Linux, X64, docker]`).
+All jobs target self-hosted runners (`[self-hosted, unified-all]`).
 
 ---
 
@@ -82,12 +81,6 @@ passwords, private keys). Results are uploaded as SARIF to the GitHub Security t
 
 ## Supply Chain Security
 
-### Build Provenance Attestation
-
-`actions/attest-build-provenance` generates SLSA-compatible provenance attestations for
-every release artifact (Linux, macOS, Windows). Attestations provide an auditable record
-of what was built, when, and by which workflow run.
-
 ### Locked Dependencies
 
 All CI build and test steps use `--locked` to ensure the exact dependency versions from
@@ -96,7 +89,7 @@ immediately.
 
 ### Release Checksums
 
-Every GitHub Release includes `SHA256SUMS.txt` with checksums for all published artifacts.
+Every GitHub Release includes `SHA256SUMS` with checksums for all published Linux artifacts.
 
 ---
 
@@ -113,11 +106,9 @@ Each workflow uses concurrency groups scoped to `${{ github.ref }}` with
 
 ### Least-Privilege Permissions
 
-Every workflow declares explicit `permissions` blocks scoped to the minimum required:
+The workflow declares explicit `permissions` blocks scoped to the minimum required:
 
-- CI: implicit (contents: read)
-- Security: `contents: read`, `security-events: write`
-- Release: `contents: write`, `id-token: write`, `attestations: write`
+- `ci-rust.yml`: `contents: write`, `id-token: write` (write needed for GitHub Release on tags)
 
 ### Runner Selection
 
@@ -165,5 +156,5 @@ gitleaks detect --source . --redact --verbose
 | Dependency version drift | `--locked` flag on all cargo commands in CI |
 | Wasted CI resources | Concurrency groups with cancel-in-progress |
 | Over-privileged workflows | Explicit least-privilege permission blocks |
-| Tampered release artifacts | Build provenance attestation + SHA256 checksums |
+| Tampered release artifacts | SHA256 checksums published alongside release artifacts |
 | Unmaintained/unsound dependencies | cargo-deny advisory policy on every PR |
