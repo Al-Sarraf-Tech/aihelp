@@ -1,6 +1,6 @@
 # aihelp
 
-[![CI](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml/badge.svg)](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml)
+[![CI](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci.yml/badge.svg)](https://github.com/Al-Sarraf-Tech/aihelp/actions/workflows/ci.yml)
 
 > CI runs on self-hosted runners managed by the [Haskell Orchestrator](https://github.com/Al-Sarraf-Tech/Haskell-Orchestrator).
 
@@ -25,7 +25,7 @@ Manpage source lives at `man/aihelp.1`.
 
 ## Quick Start
 
-Linux/macOS:
+Linux:
 
 ```bash
 aihelp "Hello can you hear me?"
@@ -122,7 +122,6 @@ Streaming behavior:
 - Model: `openai/gpt-oss-20b`
 - Config file:
   - Linux: `~/.config/aihelp/config.toml`
-  - macOS: `~/Library/Application Support/aihelp/config.toml`
   - Windows: `%APPDATA%\aihelp\config.toml`
 
 ## Config Example
@@ -182,7 +181,7 @@ Strategies:
 |---|---|
 | `preferred` | Try endpoints in priority order, use first reachable (default) |
 | `fallback` | Same as preferred — try in order, skip unreachable |
-| `round_robin` | Probe all in parallel, pick first reachable by priority |
+| `parallel_probe` | Probe all in parallel, pick first reachable by priority (alias: `round_robin`) |
 | `model_route` | Route specific models to specific endpoints via `[model_routing]` |
 
 Model routing example:
