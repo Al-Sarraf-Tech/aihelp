@@ -51,10 +51,7 @@ async fn sse_multi_chunk_concatenated() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body_lf(), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body_lf(), "text/event-stream"))
         .mount(&server)
         .await;
 
@@ -86,10 +83,7 @@ async fn sse_crlf_delimiters_work() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body_crlf(), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body_crlf(), "text/event-stream"))
         .mount(&server)
         .await;
 
@@ -168,9 +162,7 @@ async fn sse_ends_without_done_marker_salvages() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .mount(&server)
         .await;
 
