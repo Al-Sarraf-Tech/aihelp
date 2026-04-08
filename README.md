@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml/badge.svg)](https://github.com/jalsarraf0/aihelp/actions/workflows/ci.yml)
 
-> CI runs on self-hosted runners managed by [haskell-ci-orchestrator](https://github.com/jalsarraf0/haskell-ci-orchestrator) with build attestation.
+> CI runs on self-hosted runners managed by the [Haskell Orchestrator](https://github.com/Al-Sarraf-Tech/Haskell-Orchestrator).
 
 `aihelp` is a cross-platform Rust CLI for LM Studio (OpenAI-compatible API) with optional MCP tool discovery and tool-calling orchestration.
 
@@ -17,10 +17,9 @@ cargo install --path .
 From release binaries:
 
 - Linux: `aihelp-<tag>-x86_64-unknown-linux-gnu.tar.gz`
-- macOS: `aihelp-<tag>-x86_64-apple-darwin.tar.gz`
 - Windows: `aihelp-<tag>-x86_64-pc-windows-msvc.zip`
 
-Download from GitHub Releases: <https://github.com/jalsarraf0/aihelp/releases>
+Download from GitHub Releases: <https://github.com/Al-Sarraf-Tech/aihelp/releases>
 
 Manpage source lives at `man/aihelp.1`.
 
@@ -249,7 +248,7 @@ Timeouts / intermittent latency:
 
 - CI workflow (`ci.yml`) runs compile sanity + full regression and security gate.
 - Security workflow (`security.yml`) runs dependency audit.
-- Release workflow (`release.yml`) builds and publishes Linux/macOS/Windows binaries on tags.
+- Release workflow (`release.yml`) builds and publishes Linux/Windows binaries on tags.
 
 ## Self-Hosted Runner (Optional)
 
@@ -270,3 +269,7 @@ Start:
 cd /docker/aihelp/runner
 docker compose up -d
 ```
+
+## CI/CD & Orchestration
+
+This project is governed by the [Haskell Orchestrator](https://github.com/Al-Sarraf-Tech/Haskell-Orchestrator) — a Haskell-based multi-agent CI/CD governance framework for pre-push validation, code quality enforcement, and release management across the Al-Sarraf-Tech organization.
