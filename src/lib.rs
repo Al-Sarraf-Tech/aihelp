@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+//! aihelp — CLI helper for LM Studio with optional MCP tool discovery.
 
 pub mod agent;
 pub mod client;
