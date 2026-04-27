@@ -28,7 +28,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 assert_cmd = "2.1"
 predicates = "3.1"
 serial_test = "3.2"
-tempfile = "3.15"
+tempfile = "3.27"
 wiremock = "0.6"
 
 [profile.release]
