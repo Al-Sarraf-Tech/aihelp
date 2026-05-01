@@ -52,3 +52,10 @@ Release profile: `codegen-units = 1`, `lto = true`, `strip = true`.
 - Org repo (`Al-Sarraf-Tech/aihelp`) runs full CI pipeline. Personal repo (`jalsarraf0/aihelp`) runs no CI on GitHub.
 - Org CI must pass before pushing to personal. Release artifacts on org repo.
 - Runners: `linux-mega-1` (amarillo, 70°C limit), `wsl2-runner` (no limit), `dominus-runner` (no limit).
+
+## Observability
+JSON tracing emitted to `<logging.log_dir>/aihelp.log.YYYY-MM-DD` (default `~/.cache/aihelp/logs/`). Override level with `RUST_LOG=debug`. Filter with `jq`:
+```bash
+jq 'select(.level == "ERROR" or .level == "WARN")' ~/.cache/aihelp/logs/aihelp.log.$(date -I)
+```
+Operator runbooks for top failure modes: see `docs/RUNBOOKS.md`.
