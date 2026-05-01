@@ -1,0 +1,30 @@
+# Coverage gate. Excludes:
+# - src/main.rs: trivial 3-line entry point (Cli::parse + run); also exercised
+#   only via subprocess in assert_cmd-based integration tests.
+#
+# Most aihelp integration tests (chat_basic, dry_run, json_output, retry_timeouts,
+# mcp_policy, list_discovery, cli_flags, streaming_e2e, http_error_paths,
+# help_manpage, model_presence, model_switch, mcp_empty_servers_fallback,
+# stream_defaults) launch aihelp as a child process via assert_cmd. Tarpaulin
+# instruments LLVM coverage in the test binary, not in spawned child processes,
+# so those tests do not contribute to the measured percentage even though they
+# exercise large chunks of src/lib.rs::run, src/client.rs, src/agent.rs,
+# src/setup.rs, and src/mcp.rs.
+#
+# Library-only unit-test measurement: 33.5% (545/1627 lines). Floor set to 28%
+# (= floor(33.5) - 5) to allow flicker headroom. Ratchet target: 60%, achievable
+# by adding in-process integration tests that import the aihelp:: library API
+# rather than spawning the binary.
+#
+# Pain points for future ratcheting:
+#   - src/setup.rs: 26/195 (13%) — interactive prompt path tested via subprocess
+#   - src/client.rs: 79/414 (19%) — HTTP retries tested via subprocess + wiremock
+#   - src/agent.rs: 69/215 (32%) — MCP loop tested via subprocess
+#   - src/mcp.rs: 46/187 (25%) — backend tested via subprocess
+
+[default]
+exclude-files = ["src/main.rs"]
+fail-under = 28
+skip-clean = true
+out = ["Stdout", "Html"]
+output-dir = "target/tarpaulin"

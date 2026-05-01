@@ -105,6 +105,29 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: cargo deny check bans licenses sources
+  coverage:
+    name: Coverage
+    runs-on: [self-hosted, rust-slim]
+    needs: test
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install cargo-tarpaulin
+        shell: bash
+        timeout-minutes: 10
+        run: cargo install cargo-tarpaulin --version 0.35.4 --locked
+      - name: Run coverage gate (tarpaulin.toml fail-under=28)
+        shell: bash
+        timeout-minutes: 20
+        run: cargo tarpaulin
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tarpaulin-report
+          path: target/tarpaulin/tarpaulin-report.html
+          retention-days: 14
   release:
     name: Release
     runs-on: [self-hosted, rust-slim]
