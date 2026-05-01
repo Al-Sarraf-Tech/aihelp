@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use futures_util::StreamExt;
@@ -7,6 +7,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::time::sleep;
+use tracing::{debug, error, warn};
 
 #[derive(Debug, Clone)]
 pub struct OpenAiClient {
@@ -91,6 +92,8 @@ impl OpenAiClient {
     pub async fn list_models(&self) -> Result<Vec<String>> {
         let url = self.endpoint_url("/v1/models");
         let max_attempts = self.max_attempts();
+        let t0 = Instant::now();
+        debug!(op = "list_models", url = %url, max_attempts = max_attempts, "request start");
 
         for attempt in 0..max_attempts {
             let mut req = self.http.get(&url);
@@ -103,9 +106,28 @@ impl OpenAiClient {
                 Err(err) => {
                     let retryable = Self::should_retry_reqwest_error(&err);
                     if retryable && attempt + 1 < max_attempts {
+                        warn!(
+                            op = "list_models",
+                            url = %url,
+                            attempt = attempt + 1,
+                            max_attempts = max_attempts,
+                            error = %err,
+                            outcome = "retry",
+                            "transport error, retrying"
+                        );
                         self.sleep_before_retry(attempt).await;
                         continue;
                     }
+
+                    error!(
+                        op = "list_models",
+                        url = %url,
+                        attempt = attempt + 1,
+                        latency_ms = t0.elapsed().as_millis() as u64,
+                        error = %err,
+                        outcome = "error",
+                        "transport error, no more retries"
+                    );
 
                     if retryable {
                         return Err(err).context(format!(
@@ -122,9 +144,26 @@ impl OpenAiClient {
                 let body = resp.text().await.unwrap_or_default();
 
                 if Self::should_retry_status(status) && attempt + 1 < max_attempts {
+                    warn!(
+                        op = "list_models",
+                        url = %url,
+                        attempt = attempt + 1,
+                        status = status.as_u16(),
+                        outcome = "retry",
+                        "retryable status, retrying"
+                    );
                     self.sleep_before_retry(attempt).await;
                     continue;
                 }
+
+                error!(
+                    op = "list_models",
+                    url = %url,
+                    status = status.as_u16(),
+                    latency_ms = t0.elapsed().as_millis() as u64,
+                    outcome = "error",
+                    "non-success status"
+                );
 
                 if Self::should_retry_status(status) {
                     bail!(
@@ -141,7 +180,16 @@ impl OpenAiClient {
                 .await
                 .context("failed to parse /v1/models response")?;
 
-            return Ok(payload.data.into_iter().map(|m| m.id).collect());
+            let models: Vec<String> = payload.data.into_iter().map(|m| m.id).collect();
+            debug!(
+                op = "list_models",
+                url = %url,
+                model_count = models.len(),
+                latency_ms = t0.elapsed().as_millis() as u64,
+                outcome = "ok",
+                "request done"
+            );
+            return Ok(models);
         }
 
         bail!("request to /v1/models failed after {max_attempts} attempts")
@@ -190,6 +238,17 @@ impl OpenAiClient {
     ) -> Result<ChatCompletionEnvelope> {
         let url = self.endpoint_url("/v1/chat/completions");
         let max_attempts = self.max_attempts();
+        let t0 = Instant::now();
+        debug!(
+            op = "chat_completion",
+            url = %url,
+            model = %request.model,
+            stream = request.stream,
+            tools = request.tools.is_some(),
+            messages = request.messages.len(),
+            max_attempts = max_attempts,
+            "request start"
+        );
 
         for attempt in 0..max_attempts {
             let mut req = self.http.post(&url).json(request);
@@ -202,9 +261,30 @@ impl OpenAiClient {
                 Err(err) => {
                     let retryable = Self::should_retry_reqwest_error(&err);
                     if retryable && attempt + 1 < max_attempts {
+                        warn!(
+                            op = "chat_completion",
+                            url = %url,
+                            model = %request.model,
+                            attempt = attempt + 1,
+                            max_attempts = max_attempts,
+                            error = %err,
+                            outcome = "retry",
+                            "transport error, retrying"
+                        );
                         self.sleep_before_retry(attempt).await;
                         continue;
                     }
+
+                    error!(
+                        op = "chat_completion",
+                        url = %url,
+                        model = %request.model,
+                        attempt = attempt + 1,
+                        latency_ms = t0.elapsed().as_millis() as u64,
+                        error = %err,
+                        outcome = "error",
+                        "transport error, no more retries"
+                    );
 
                     if retryable {
                         return Err(err).context(format!(
@@ -251,9 +331,28 @@ impl OpenAiClient {
 
             if !status.is_success() {
                 if Self::should_retry_status(status) && attempt + 1 < max_attempts {
+                    warn!(
+                        op = "chat_completion",
+                        url = %url,
+                        model = %request.model,
+                        attempt = attempt + 1,
+                        status = status.as_u16(),
+                        outcome = "retry",
+                        "retryable status, retrying"
+                    );
                     self.sleep_before_retry(attempt).await;
                     continue;
                 }
+
+                error!(
+                    op = "chat_completion",
+                    url = %url,
+                    model = %request.model,
+                    status = status.as_u16(),
+                    latency_ms = t0.elapsed().as_millis() as u64,
+                    outcome = "error",
+                    "non-success status"
+                );
 
                 if Self::should_retry_status(status) {
                     bail!(
@@ -274,6 +373,16 @@ impl OpenAiClient {
 
             let parsed: ChatCompletionResponse = serde_json::from_value(raw_json.clone())
                 .context("failed to decode chat completion payload")?;
+
+            debug!(
+                op = "chat_completion",
+                url = %url,
+                model = %request.model,
+                latency_ms = t0.elapsed().as_millis() as u64,
+                response_bytes = raw_text.len(),
+                outcome = "ok",
+                "request done"
+            );
 
             return Ok(ChatCompletionEnvelope {
                 response: parsed,
@@ -302,6 +411,16 @@ impl OpenAiClient {
 
         let url = self.endpoint_url("/v1/chat/completions");
         let max_attempts = self.max_attempts();
+        let t0 = Instant::now();
+        debug!(
+            op = "chat_completion_stream",
+            url = %url,
+            model = %request.model,
+            tools = request.tools.is_some(),
+            messages = request.messages.len(),
+            max_attempts = max_attempts,
+            "stream request start"
+        );
 
         'attempt_loop: for attempt in 0..max_attempts {
             let mut req = self.http.post(&url).json(&stream_request);
@@ -314,9 +433,29 @@ impl OpenAiClient {
                 Err(err) => {
                     let retryable = Self::should_retry_reqwest_error(&err);
                     if retryable && attempt + 1 < max_attempts {
+                        warn!(
+                            op = "chat_completion_stream",
+                            url = %url,
+                            model = %request.model,
+                            attempt = attempt + 1,
+                            error = %err,
+                            outcome = "retry",
+                            "transport error, retrying"
+                        );
                         self.sleep_before_retry(attempt).await;
                         continue;
                     }
+
+                    error!(
+                        op = "chat_completion_stream",
+                        url = %url,
+                        model = %request.model,
+                        attempt = attempt + 1,
+                        latency_ms = t0.elapsed().as_millis() as u64,
+                        error = %err,
+                        outcome = "error",
+                        "transport error, no more retries"
+                    );
 
                     if retryable {
                         return Err(err).context(format!(
@@ -334,9 +473,28 @@ impl OpenAiClient {
                 let body = resp.text().await.unwrap_or_default();
 
                 if Self::should_retry_status(status) && attempt + 1 < max_attempts {
+                    warn!(
+                        op = "chat_completion_stream",
+                        url = %url,
+                        model = %request.model,
+                        attempt = attempt + 1,
+                        status = status.as_u16(),
+                        outcome = "retry",
+                        "retryable status, retrying"
+                    );
                     self.sleep_before_retry(attempt).await;
                     continue;
                 }
+
+                error!(
+                    op = "chat_completion_stream",
+                    url = %url,
+                    model = %request.model,
+                    status = status.as_u16(),
+                    latency_ms = t0.elapsed().as_millis() as u64,
+                    outcome = "error",
+                    "non-success status"
+                );
 
                 if Self::should_retry_status(status) {
                     bail!(
@@ -626,9 +784,21 @@ impl OpenAiClient {
                 choices: vec![ChatChoice {
                     index: 0,
                     message,
-                    finish_reason,
+                    finish_reason: finish_reason.clone(),
                 }],
             };
+
+            debug!(
+                op = "chat_completion_stream",
+                url = %url,
+                model = %request.model,
+                latency_ms = t0.elapsed().as_millis() as u64,
+                chunks = raw_chunks.len(),
+                text_bytes = text_acc.len(),
+                finish_reason = ?finish_reason,
+                outcome = "ok",
+                "stream request done"
+            );
 
             return Ok(ChatCompletionEnvelope {
                 response,

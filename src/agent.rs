@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
+use tracing::{debug, info, warn};
 
 use crate::client::{ChatCompletionRequest, ChatMessage, OpenAiClient, ToolCall};
 use crate::mcp::{
@@ -100,6 +101,15 @@ pub async fn run_agent(
         ChatMessage::system(SYSTEM_PROMPT),
         ChatMessage::user(build_user_message(question, stdin_context)),
     ];
+
+    debug!(
+        op = "run_agent",
+        model = %opts.model,
+        mcp_enabled = opts.mcp_enabled,
+        stream = opts.stream,
+        json = opts.json,
+        "agent run start"
+    );
 
     if !opts.mcp_enabled {
         run_single_turn(client, &messages, opts).await
@@ -286,6 +296,14 @@ async fn run_mcp_loop(
 
         for call in tool_calls {
             if tool_calls_executed >= opts.mcp_max_tool_calls {
+                warn!(
+                    op = "run_mcp_loop",
+                    tool_calls_executed = tool_calls_executed,
+                    max_tool_calls = opts.mcp_max_tool_calls,
+                    round = round + 1,
+                    outcome = "limit_hit",
+                    "mcp tool-call limit reached"
+                );
                 emit_limit_hit(opts, &last_assistant_text, tool_calls_executed, round + 1)?;
                 return Ok(());
             }
@@ -298,7 +316,33 @@ async fn run_mcp_loop(
                 call.id.clone()
             };
 
+            let tool_t0 = Instant::now();
+            debug!(
+                op = "tool_call",
+                tool = %call.function.name,
+                tool_call_id = %tool_call_id,
+                round = round + 1,
+                "tool call start"
+            );
             let result = execute_virtual_tool(backend, &call).await;
+            let outcome = if result
+                .as_object()
+                .map(|m| m.contains_key("error"))
+                .unwrap_or(false)
+            {
+                "error"
+            } else {
+                "ok"
+            };
+            info!(
+                op = "tool_call",
+                tool = %call.function.name,
+                tool_call_id = %tool_call_id,
+                round = round + 1,
+                latency_ms = tool_t0.elapsed().as_millis() as u64,
+                outcome = outcome,
+                "tool call done"
+            );
 
             if opts.json {
                 print_json_line(&json!({
@@ -313,6 +357,13 @@ async fn run_mcp_loop(
         }
     }
 
+    warn!(
+        op = "run_mcp_loop",
+        tool_calls_executed = tool_calls_executed,
+        max_round_trips = opts.mcp_max_round_trips,
+        outcome = "round_limit_hit",
+        "mcp round-trip limit reached"
+    );
     emit_limit_hit(
         opts,
         &last_assistant_text,

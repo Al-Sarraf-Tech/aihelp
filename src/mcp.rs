@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -10,6 +11,7 @@ use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
 use rmcp::{Peer, RoleClient, ServiceExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tracing::{debug, error, info, warn};
 
 use crate::client::{FunctionDefinition, ToolDefinition};
 use crate::config::{McpAllowPolicy, McpServerConfig};
@@ -57,17 +59,67 @@ impl RmcpBackend {
             }
 
             let allowed_tools = server.allowed_tools().to_vec();
+            let transport = match &server {
+                McpServerConfig::Http { .. } => "http",
+                McpServerConfig::Stdio { .. } => "stdio",
+            };
+            let t0 = Instant::now();
+            debug!(
+                op = "mcp_connect",
+                server = %label,
+                transport = transport,
+                "connecting"
+            );
 
             let service = match &server {
                 McpServerConfig::Http {
                     endpoint, headers, ..
-                } => connect_http(endpoint, headers)
-                    .await
-                    .with_context(|| format!("failed to connect MCP HTTP server '{label}'"))?,
-                McpServerConfig::Stdio { command, args, .. } => connect_stdio(command, args)
-                    .await
-                    .with_context(|| format!("failed to connect MCP stdio server '{label}'"))?,
+                } => match connect_http(endpoint, headers).await {
+                    Ok(svc) => svc,
+                    Err(err) => {
+                        error!(
+                            op = "mcp_connect",
+                            server = %label,
+                            transport = transport,
+                            latency_ms = t0.elapsed().as_millis() as u64,
+                            error = %err,
+                            outcome = "error",
+                            "connect failed"
+                        );
+                        return Err(err).with_context(|| {
+                            format!("failed to connect MCP HTTP server '{label}'")
+                        });
+                    }
+                },
+                McpServerConfig::Stdio { command, args, .. } => {
+                    match connect_stdio(command, args).await {
+                        Ok(svc) => svc,
+                        Err(err) => {
+                            error!(
+                                op = "mcp_connect",
+                                server = %label,
+                                transport = transport,
+                                latency_ms = t0.elapsed().as_millis() as u64,
+                                error = %err,
+                                outcome = "error",
+                                "connect failed"
+                            );
+                            return Err(err).with_context(|| {
+                                format!("failed to connect MCP stdio server '{label}'")
+                            });
+                        }
+                    }
+                }
             };
+
+            info!(
+                op = "mcp_connect",
+                server = %label,
+                transport = transport,
+                latency_ms = t0.elapsed().as_millis() as u64,
+                outcome = "ok",
+                "connected"
+            );
 
             let peer = service.peer().clone();
 
@@ -161,10 +213,12 @@ impl McpBackend for RmcpBackend {
         let server = self.find_server(server_label)?;
 
         if !self.tool_allowed(server, tool_name) {
-            tracing::warn!(
+            warn!(
+                op = "mcp_call_tool",
                 policy = %self.policy,
                 server = server_label,
                 tool = tool_name,
+                outcome = "blocked",
                 "MCP tool call blocked by allow policy"
             );
             bail!(
@@ -186,12 +240,42 @@ impl McpBackend for RmcpBackend {
             params = params.with_arguments(args);
         }
 
-        let result = server.peer.call_tool(params).await.with_context(|| {
-            format!("call_tool failed for server '{server_label}', tool '{tool_name}'")
-        })?;
+        let t0 = Instant::now();
+        debug!(
+            op = "mcp_call_tool",
+            server = server_label,
+            tool = tool_name,
+            "tool call start"
+        );
+        let result = match server.peer.call_tool(params).await {
+            Ok(v) => v,
+            Err(err) => {
+                error!(
+                    op = "mcp_call_tool",
+                    server = server_label,
+                    tool = tool_name,
+                    latency_ms = t0.elapsed().as_millis() as u64,
+                    error = %err,
+                    outcome = "error",
+                    "tool call failed"
+                );
+                return Err(err).with_context(|| {
+                    format!("call_tool failed for server '{server_label}', tool '{tool_name}'")
+                });
+            }
+        };
 
         let result_json =
             serde_json::to_value(result).context("failed to serialize MCP tool result")?;
+
+        debug!(
+            op = "mcp_call_tool",
+            server = server_label,
+            tool = tool_name,
+            latency_ms = t0.elapsed().as_millis() as u64,
+            outcome = "ok",
+            "tool call done"
+        );
 
         Ok(json!({
             "server_label": server_label,

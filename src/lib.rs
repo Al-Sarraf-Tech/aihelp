@@ -20,7 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::agent::{run_agent, AgentRunOptions};
 use crate::client::OpenAiClient;
-use crate::config::{AppConfig, McpAllowPolicy};
+use crate::config::{AppConfig, LoggingConfig, McpAllowPolicy};
 use crate::endpoint::select_endpoint;
 use crate::mcp::RmcpBackend;
 use crate::prompt::read_stdin_context;
@@ -180,7 +180,13 @@ pub struct EffectiveSettings {
 
 pub async fn run(cli: Cli) -> Result<()> {
     install_rustls_provider();
-    init_tracing(cli.quiet);
+
+    // Load logging config eagerly so JSON observability is available even before
+    // the main config load below resolves. Fail-open: a missing/unreadable
+    // config falls back to defaults; an unwritable log_dir disables file logs
+    // but never blocks the CLI.
+    let logging_cfg = load_logging_config_or_default();
+    let _tracing_guard = init_tracing(&logging_cfg, cli.quiet);
 
     let noninteractive_forced = std::env::var("AIHELP_NONINTERACTIVE")
         .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
@@ -400,18 +406,77 @@ fn resolve_settings(cli: &Cli, config: &AppConfig) -> EffectiveSettings {
     }
 }
 
-fn init_tracing(quiet: bool) {
+/// Initialize structured JSON logging.
+///
+/// Logs are written as one JSON object per line to
+/// `<log_dir>/aihelp.log.YYYY-MM-DD` via daily rotation. The returned
+/// `WorkerGuard` must be held for the program lifetime so the non-blocking
+/// writer thread can flush on exit.
+///
+/// Fail-open: if `log_dir` is not writable, prints a one-line note to stderr
+/// and runs without file logs (CLI still works). `RUST_LOG` overrides
+/// `cfg.level` when set. `quiet` forces `warn` level regardless of config.
+fn init_tracing(
+    cfg: &LoggingConfig,
+    quiet: bool,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    use tracing_subscriber::fmt;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
     let filter = if quiet {
         EnvFilter::new("warn")
     } else {
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
+        EnvFilter::try_from_default_env()
+            .or_else(|_| EnvFilter::try_new(&cfg.level))
+            .unwrap_or_else(|_| EnvFilter::new("info"))
     };
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_writer(std::io::stderr)
+    let log_dir = cfg.resolved_log_dir();
+
+    // Try to create log_dir; on failure, fall back to stderr-only logging.
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!(
+            "aihelp: log_dir {} not writable, JSON file logs disabled: {e}",
+            log_dir.display()
+        );
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_target(false)
+            .with_writer(std::io::stderr)
+            .try_init();
+        return None;
+    }
+
+    let appender = tracing_appender::rolling::daily(&log_dir, "aihelp.log");
+    let (nb, guard) = tracing_appender::non_blocking(appender);
+
+    let init_result = tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt::layer().with_writer(nb).with_target(true).json())
         .try_init();
+
+    if init_result.is_err() {
+        // Another subscriber was already installed (e.g. test harness or a
+        // second call). Drop the guard cleanly.
+        return None;
+    }
+
+    Some(guard)
+}
+
+fn load_logging_config_or_default() -> LoggingConfig {
+    let path = match config::config_file_path() {
+        Ok(p) => p,
+        Err(_) => return LoggingConfig::default(),
+    };
+    if !path.exists() {
+        return LoggingConfig::default();
+    }
+    match config::load_config(&path) {
+        Ok(cfg) => cfg.logging,
+        Err(_) => LoggingConfig::default(),
+    }
 }
 
 fn install_rustls_provider() {

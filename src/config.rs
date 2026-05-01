@@ -138,6 +138,8 @@ pub struct AppConfig {
     pub endpoint_strategy: EndpointStrategy,
     #[serde(default)]
     pub model_routing: HashMap<String, String>,
+    #[serde(default)]
+    pub logging: LoggingConfig,
 }
 
 impl Default for AppConfig {
@@ -155,8 +157,51 @@ impl Default for AppConfig {
             endpoints: Vec::new(),
             endpoint_strategy: default_endpoint_strategy(),
             model_routing: HashMap::new(),
+            logging: LoggingConfig::default(),
         }
     }
+}
+
+/// JSON observability config. Logs are written as one JSON object per line to
+/// `<log_dir>/aihelp.log.YYYY-MM-DD` via `tracing-appender`'s daily rotation.
+/// Empty `log_dir` falls back to `${XDG_CACHE_HOME:-~/.cache}/aihelp/logs/`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    #[serde(default)]
+    pub log_dir: PathBuf,
+    #[serde(default = "default_log_level")]
+    pub level: String,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            log_dir: PathBuf::new(),
+            level: default_log_level(),
+        }
+    }
+}
+
+impl LoggingConfig {
+    /// Returns the configured log_dir if non-empty, otherwise the default
+    /// `${XDG_CACHE_HOME:-~/.cache}/aihelp/logs/`.
+    pub fn resolved_log_dir(&self) -> PathBuf {
+        if !self.log_dir.as_os_str().is_empty() {
+            return self.log_dir.clone();
+        }
+        default_log_dir()
+    }
+}
+
+fn default_log_dir() -> PathBuf {
+    if let Some(dirs) = ProjectDirs::from("", "", "aihelp") {
+        return dirs.cache_dir().join("logs");
+    }
+    PathBuf::from("/tmp/aihelp/logs")
+}
+
+fn default_log_level() -> String {
+    "info".to_string()
 }
 
 impl AppConfig {
